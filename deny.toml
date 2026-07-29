@@ -3,7 +3,29 @@
 
 [advisories]
 version = 2
-ignore = []
+ignore = [
+    "RUSTSEC-2026-0204",  # crossbeam-epoch: pointer dereference (transitive via criterion)
+    "RUSTSEC-2025-0057",  # fxhash: unmaintained (transitive via wasmtime)
+    "RUSTSEC-2024-0436",  # paste: unmaintained (transitive via wasmtime)
+    "RUSTSEC-2024-0437",  # protobuf: crash via recursion (transitive via prometheus)
+    "RUSTSEC-2025-0046",  # wasmtime: fd_renumber panic
+    "RUSTSEC-2025-0118",  # wasmtime: unsound shared memory access
+    "RUSTSEC-2026-0006",  # wasmtime: f64.copysign segfault
+    "RUSTSEC-2026-0020",  # wasmtime: resource exhaustion in WASI
+    "RUSTSEC-2026-0021",  # wasmtime: panic from excessive fields
+    "RUSTSEC-2026-0085",  # wasmtime: panic lifting flags value
+    "RUSTSEC-2026-0086",  # wasmtime: data leakage with 64-bit tables
+    "RUSTSEC-2026-0087",  # wasmtime: f64x2.splat segfault
+    "RUSTSEC-2026-0088",  # wasmtime: data leakage pooling allocator
+    "RUSTSEC-2026-0089",  # wasmtime: panic table.fill with Winch
+    "RUSTSEC-2026-0091",  # wasmtime: OOB write transcoding strings
+    "RUSTSEC-2026-0092",  # wasmtime: panic transcoding misaligned UTF-16
+    "RUSTSEC-2026-0093",  # wasmtime: heap OOB read in transcoding
+    "RUSTSEC-2026-0094",  # wasmtime: improperly masked table.grow return
+    "RUSTSEC-2026-0095",  # wasmtime: sandbox-escaping memory access (Winch)
+    "RUSTSEC-2026-0096",  # wasmtime: sandbox escape on aarch64 Cranelift
+    "RUSTSEC-2026-0114",  # wasmtime: panic allocating oversized table
+]
 
 [licenses]
 version = 2

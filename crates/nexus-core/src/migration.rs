@@ -56,7 +56,10 @@ impl CrossNodeSession {
             .collect();
 
         let memory_graph = state.memory_graph.clone();
-        let causal_vector = state.causal_vector.clone();
+        let mut causal_vector = state.causal_vector.clone();
+        for event in events {
+            causal_vector.merge(&event.causal_vector);
+        }
 
         Self {
             session_id: session_id.to_hex(),
