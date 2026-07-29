@@ -7,6 +7,8 @@ import uuid
 import time
 import os
 import hashlib
+import subprocess
+import sys
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -26,6 +28,7 @@ class RuntimeConfig:
     max_workers: int = 4
     default_model: str = "claude-3.5-sonnet"
     signing_key: Optional[bytes] = None
+    worker_path: Optional[str] = None  # path to python-worker/main.py
 
 class Runtime:
     """Nexus Runtime — manages sessions, event store, and workers."""
@@ -108,6 +111,20 @@ class Runtime:
              event["trace_id"], event["causal_vector"], event["payload"],
              event["payload_hash"], event["event_timestamp"],
              event["nonce"], event["integrity_hash"]),
+        )
+        self._conn.commit()
+
+        # Also insert into sessions table so list_sessions() works immediately
+        self._conn.execute(
+            """INSERT OR REPLACE INTO sessions (session_id, version, status, checkpoint_seq,
+               created_at, updated_at, latest_event_id, intent_graph, execution_frontier,
+               memory_refs, budget)
+               VALUES (?, 1, ?, 0, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                session_id, "created",
+                event["event_timestamp"], event["event_timestamp"], event["event_id"],
+                b"", b"", b"", b"",
+            ),
         )
         self._conn.commit()
 
@@ -231,6 +248,143 @@ class Runtime:
         self._conn.commit()
 
         return self.resume_session(session_id)
+
+    def _resolve_worker_path(self) -> str:
+        """Resolve the path to the Python worker executable."""
+        if self.config.worker_path:
+            return os.path.expanduser(self.config.worker_path)
+
+        # Try environment variable
+        env_path = os.environ.get("NEXUS_WORKER_PATH")
+        if env_path and os.path.isfile(env_path):
+            return env_path
+
+        # Search candidates relative to this package file
+        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.normpath(os.path.join(pkg_dir, "..", "..", "..", "workers", "python-worker", "main.py")),
+            os.path.normpath(os.path.join(pkg_dir, "..", "..", "workers", "python-worker", "main.py")),
+        ]
+        # Also search from NEXUS_ROOT env var
+        if "NEXUS_ROOT" in os.environ:
+            candidates.append(
+                os.path.normpath(os.path.join(os.environ["NEXUS_ROOT"], "workers", "python-worker", "main.py"))
+            )
+
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return candidate
+
+        raise FileNotFoundError(
+            "Cannot find python-worker/main.py. "
+            "Set RuntimeConfig.worker_path or NEXUS_WORKER_PATH to the correct path. "
+            f"Searched: {candidates}"
+        )
+
+    def _spawn_worker(
+        self, session: "Session", task_id: str, intent_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Spawn a worker subprocess and execute a task via JSON-RPC 2.0.
+
+        Returns:
+            Dict with keys: status, artifacts, metrics, events
+        """
+        worker_path = self._resolve_worker_path()
+
+        proc = subprocess.Popen(
+            [sys.executable, worker_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "execute",
+            "params": {
+                "task_id": task_id,
+                "session_id": session.session_id,
+                "capabilities": intent_payload.get("capabilities", []),
+                "intent": intent_payload,
+                "inputs": intent_payload.get("inputs", []),
+            },
+        }
+
+        # Send execute request
+        proc.stdin.write(json.dumps(request) + "\n")
+        proc.stdin.flush()
+
+        events: List[Dict] = []
+        final_result: Optional[Dict[str, Any]] = None
+        checkpoint_count = 0
+
+        # Read JSON-RPC responses (NDJSON) — break on result/error
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if "result" in msg:
+                final_result = msg["result"]
+                break
+            elif "error" in msg:
+                final_result = {"status": "failed", "error": msg["error"]}
+                break
+            elif msg.get("method") == "checkpoint":
+                checkpoint_count += 1
+                params = msg.get("params", {})
+                events.append({
+                    "type": "checkpoint",
+                    "step": params.get("step_index", checkpoint_count),
+                    "progress": params.get("progress_percent", 0),
+                    "actions": params.get("actions", []),
+                })
+            elif msg.get("method") == "progress":
+                params = msg.get("params", {})
+                events.append({
+                    "type": "progress",
+                    "percent": params.get("percent", 0),
+                    "step": params.get("current_step", ""),
+                })
+
+        # Close stdin to signal worker shutdown
+        proc.stdin.close()
+
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+        if final_result is None:
+            final_result = {
+                "status": "failed",
+                "error": "Worker exited without returning a result",
+            }
+
+        # Capture stderr for diagnostics
+        stderr_output = proc.stderr.read()
+        if stderr_output:
+            events.append({"type": "worker_log", "content": stderr_output[:2000]})
+
+        return {
+            "status": final_result.get("status", "failed"),
+            "artifacts": final_result.get("artifacts", []),
+            "metrics": final_result.get("metrics", {}),
+            "error": final_result.get("error"),
+            "events": events,
+            "checkpoint_count": checkpoint_count,
+        }
 
     def close(self):
         self._conn.close()

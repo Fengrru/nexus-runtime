@@ -1,0 +1,110 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "book.toml"
+      - "crates/**/src/**"
+      - "crates/**/Cargo.toml"
+      - "sdk/**/src/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "book.toml"
+      - "crates/**/src/**"
+      - "crates/**/Cargo.toml"
+      - "sdk/**/src/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTDOCFLAGS: "-D warnings"
+
+jobs:
+  # Verify documentation compiles (no warnings)
+  doc-check:
+    name: cargo doc (check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: doc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: doc-cargo-
+
+      - name: Run cargo doc
+        run: cargo doc --no-deps --workspace --document-private-items
+
+  # Build and deploy on main branch
+  build-and-deploy:
+    name: Build & Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: doc-check
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mdbook
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook
+
+      - name: Build mdbook
+        run: mdbook build
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/doc
+          key: deploy-doc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: deploy-doc-cargo-
+
+      - name: Build rustdoc
+        run: cargo doc --no-deps --workspace --document-private-items
+
+      - name: Copy rustdoc into book output
+        run: |
+          mkdir -p target/book/api
+          cp -r target/doc/* target/book/api/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/book
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

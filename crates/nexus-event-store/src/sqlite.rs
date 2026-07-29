@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use nexus_core::{
     ArtifactRef, LlmCallRecord, LockMode, NexusEvent, NexusState, SessionId, SideEffectIntent,
 };
+use nexus_core::session_driver::SessionStore;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub const CREATE_SCHEMA_SQL: &str = include_str!("../schema.sql");
@@ -346,6 +347,21 @@ impl EventStore for SqliteEventStore {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl SessionStore for SqliteEventStore {
+    async fn append_event(&self, event: &NexusEvent) -> Result<(), String> {
+        <Self as EventStore>::append_event(self, event)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn update_state(&self, state: &NexusState, expected_version: u64) -> Result<bool, String> {
+        <Self as EventStore>::update_state(self, state, expected_version)
+            .await
+            .map_err(|e| e.to_string())
     }
 }
 

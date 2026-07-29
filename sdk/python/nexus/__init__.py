@@ -12,13 +12,13 @@ Usage:
 """
 from .runtime import Runtime
 from .session import Session, SessionStatus
-from .memory import Memory, MemoryGraph, MemoryContent
+from .memory import Memory, MemoryGraph, MemoryContent, MemoryContentType, MemoryEdgeType
 from .budget import Budget
 from .event import EventType, NexusEvent
 
 __version__ = "1.0.0"
 __all__ = [
     "Runtime", "Session", "SessionStatus",
-    "Memory", "MemoryGraph", "MemoryContent",
+    "Memory", "MemoryGraph", "MemoryContent", "MemoryContentType", "MemoryEdgeType",
     "Budget", "EventType", "NexusEvent",
 ]

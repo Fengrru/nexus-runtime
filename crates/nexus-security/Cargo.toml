@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 nexus-core = { path = "../nexus-core" }
 serde.workspace = true
+serde_json.workspace = true
 rmp-serde.workspace = true
 hmac.workspace = true
 sha2.workspace = true

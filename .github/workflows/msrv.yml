@@ -1,0 +1,34 @@
+name: MSRV Check
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday 06:00 UTC
+
+jobs:
+  msrv:
+    name: Verify MSRV (1.80)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Extract MSRV from Cargo.toml
+      id: msrv
+      run: |
+        version=$(grep 'rust-version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        echo "version=${version}" >> $GITHUB_OUTPUT
+
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ steps.msrv.outputs.version }}
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Check (MSRV)
+      run: cargo check --workspace --all-features
+
+    - name: Test (MSRV)
+      run: cargo test --workspace --all-features

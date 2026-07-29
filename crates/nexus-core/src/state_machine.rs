@@ -29,6 +29,68 @@ pub enum TransitionError {
     Timeout,
 }
 
+/// The core deterministic state machine — the heart of Nexus.
+///
+/// **This function is pure** — no async, no I/O, no clock, no random.
+/// Given the same `(state, event, dag)`, it always produces the same output.
+/// This property is verified by golden fixtures and Phoenix invariant tests.
+///
+/// # State Transitions
+///
+/// ```text
+/// Created → Intake → Planning → Planned → Executing → Checkpointing → Executing → ...
+///                                                    ↘ Converging → Reflecting → Completed
+///                                                    ↘ Failed
+///
+/// Executing/Checkpointing/Planned + HumanApprovalRequested → Blocked → HumanApproved → Executing
+/// Any state + SessionSuspended → Checkpointing → SessionResumed → Executing
+/// Any state + SessionArchived → {final_status}
+/// ```
+///
+/// # Arguments
+///
+/// * `current` - The current session state (immutable borrow).
+/// * `event` - The event to apply, carrying a causal vector clock.
+/// * `dag` - The task DAG, consulted for fan-in convergence detection.
+///
+/// # Returns
+///
+/// * `Ok(NexusState)` - The next state with incremented version and merged causal vector.
+/// * `Err(TransitionError)` - If the transition violates any invariant.
+///
+/// # Errors
+///
+/// * [`TransitionError::SessionMismatch`] — Event targets a different session.
+/// * [`TransitionError::CausalViolation`] — Event vector is not monotonic.
+/// * [`TransitionError::StaleCheckpoint`] — Checkpoint sequence is behind current.
+/// * [`TransitionError::IllegalTransition`] — Event not valid from current state.
+/// * [`TransitionError::BudgetExceeded`] — Budget exhausted.
+///
+/// # Examples
+///
+/// ```
+/// use nexus_core::{NexusState, NexusEvent, transition, SessionId, CausalVector, EventType};
+/// use std::collections::BTreeMap;
+///
+/// let session_id = SessionId::from_bytes([1u8; 16]);
+/// let state = NexusState::new(session_id, 0);
+///
+/// let mut cv = CausalVector::new();
+/// cv.increment(session_id);
+///
+/// let event = NexusEvent::new(
+///     EventType::IntentReceived {
+///         raw_input: "analyze auth.js".into(),
+///         source: "cli".into(),
+///     },
+///     session_id,
+///     cv,
+///     None,
+/// );
+///
+/// let next = transition(&state, &event, &BTreeMap::new()).unwrap();
+/// assert_eq!(next.status, nexus_core::SessionStatus::Intake);
+/// ```
 pub fn transition(
     current: &NexusState,
     event: &NexusEvent,

@@ -205,3 +205,452 @@ mod tests {
         assert!(cv2.happened_before(&cv1) || cv1.happened_before(&cv2) || cv1.is_concurrent(&cv2));
     }
 }
+
+/// Property-based tests for CausalVector and transition() invariants.
+/// These verify fundamental algebraic laws that must always hold.
+#[cfg(test)]
+mod property_tests {
+    use crate::*;
+    use std::collections::BTreeMap;
+
+    // ── CausalVector Properties ────────────────────────────────────────────
+
+    #[test]
+    fn prop_causal_vector_empty_is_not_consistent() {
+        let cv = CausalVector::new();
+        assert!(!cv.is_consistent(), "empty vector must not be consistent");
+    }
+
+    #[test]
+    fn prop_causal_vector_singleton_is_consistent() {
+        let sid = SessionId::from_bytes([1u8; 16]);
+        let cv = CausalVector::singleton(sid, 1);
+        assert!(cv.is_consistent(), "singleton with positive count must be consistent");
+    }
+
+    #[test]
+    fn prop_causal_vector_increment_maintains_consistency() {
+        let sid = SessionId::from_bytes([2u8; 16]);
+        let mut cv = CausalVector::new();
+        for _ in 0..10 {
+            cv.increment(sid);
+            assert!(
+                cv.is_consistent(),
+                "vector must remain consistent after increment"
+            );
+        }
+    }
+
+    #[test]
+    fn prop_causal_vector_merge_is_commutative() {
+        let sid_a = SessionId::from_bytes([0xA1; 16]);
+        let sid_b = SessionId::from_bytes([0xB1; 16]);
+
+        let mut a = CausalVector::new();
+        a.increment(sid_a);
+        a.increment(sid_a);
+        a.increment(sid_b);
+
+        let mut b = CausalVector::new();
+        b.increment(sid_a);
+        b.increment(sid_b);
+        b.increment(sid_b);
+
+        let mut a_merge_b = a.clone();
+        a_merge_b.merge(&b);
+
+        let mut b_merge_a = b.clone();
+        b_merge_a.merge(&a);
+
+        assert_eq!(
+            a_merge_b.to_canonical(),
+            b_merge_a.to_canonical(),
+            "merge must be commutative"
+        );
+    }
+
+    #[test]
+    fn prop_causal_vector_merge_is_idempotent() {
+        let sid = SessionId::from_bytes([3u8; 16]);
+        let mut cv = CausalVector::new();
+        for _ in 0..5 {
+            cv.increment(sid);
+        }
+
+        let canon1 = cv.to_canonical();
+        let mut merged = cv.clone();
+        merged.merge(&cv);
+        assert_eq!(
+            merged.to_canonical(),
+            canon1,
+            "merging a vector with itself must be idempotent"
+        );
+    }
+
+    #[test]
+    fn prop_causal_vector_merge_is_associative() {
+        let sid_a = SessionId::from_bytes([0xA2; 16]);
+        let sid_b = SessionId::from_bytes([0xB2; 16]);
+        let sid_c = SessionId::from_bytes([0xC2; 16]);
+
+        let mut x = CausalVector::new();
+        x.increment(sid_a);
+        x.increment(sid_a);
+
+        let mut y = CausalVector::new();
+        y.increment(sid_a);
+        y.increment(sid_b);
+
+        let mut z = CausalVector::new();
+        z.increment(sid_b);
+        z.increment(sid_c);
+
+        // (x ∪ y) ∪ z == x ∪ (y ∪ z)
+        let mut xy = x.clone();
+        xy.merge(&y);
+        let mut xy_z = xy.clone();
+        xy_z.merge(&z);
+
+        let mut yz = y.clone();
+        yz.merge(&z);
+        let mut x_yz = x.clone();
+        x_yz.merge(&yz);
+
+        assert_eq!(
+            xy_z.to_canonical(),
+            x_yz.to_canonical(),
+            "merge must be associative"
+        );
+    }
+
+    #[test]
+    fn prop_causal_vector_happened_before_is_transitive() {
+        let sid = SessionId::from_bytes([4u8; 16]);
+
+        let mut a = CausalVector::new();
+        a.increment(sid); // { sid: 1 }
+
+        let mut b = a.clone();
+        b.increment(sid); // { sid: 2 }
+
+        let mut c = b.clone();
+        c.increment(sid); // { sid: 3 }
+
+        assert!(a.happened_before(&b), "a must happen before b");
+        assert!(b.happened_before(&c), "b must happen before c");
+        assert!(a.happened_before(&c), "happened-before must be transitive");
+    }
+
+    #[test]
+    fn prop_causal_vector_happened_before_is_antisymmetric() {
+        let sid = SessionId::from_bytes([5u8; 16]);
+
+        let mut a = CausalVector::new();
+        a.increment(sid);
+
+        let mut b = CausalVector::new();
+        b.increment(sid);
+        b.increment(sid);
+
+        assert!(a.happened_before(&b));
+        assert!(
+            !b.happened_before(&a),
+            "if a → b then NOT (b → a)"
+        );
+    }
+
+    #[test]
+    fn prop_causal_vector_concurrent_detection() {
+        let sid_a = SessionId::from_bytes([0xA3; 16]);
+        let sid_b = SessionId::from_bytes([0xB3; 16]);
+
+        let mut cv_a = CausalVector::new();
+        cv_a.increment(sid_a);
+        cv_a.increment(sid_a);
+
+        let mut cv_b = CausalVector::new();
+        cv_b.increment(sid_b);
+        cv_b.increment(sid_b);
+
+        // Different session IDs with no overlap → concurrent
+        assert!(
+            cv_a.is_concurrent(&cv_b),
+            "vectors from different sessions without overlap must be concurrent"
+        );
+    }
+
+    #[test]
+    fn prop_causal_vector_canonical_is_deterministic() {
+        let sid = SessionId::from_bytes([6u8; 16]);
+        let mut cv = CausalVector::new();
+        for _ in 0..100 {
+            cv.increment(sid);
+        }
+
+        let canon1 = cv.to_canonical();
+        let canon2 = cv.to_canonical();
+        assert_eq!(canon1, canon2, "to_canonical must be deterministic");
+        assert!(!canon1.is_empty(), "canonical form must not be empty");
+    }
+
+    // ── transition() Properties ──────────────────────────────────────────
+
+    #[test]
+    fn prop_transition_is_deterministic() {
+        let sid = SessionId::from_bytes([7u8; 16]);
+        let dag = BTreeMap::new();
+
+        // Run transition twice with same inputs
+        let state1 = NexusState::new(sid, 0);
+        let mut cv = CausalVector::new();
+        cv.increment(sid);
+        let event = NexusEvent::new(
+            EventType::IntentReceived {
+                raw_input: "deterministic test".into(),
+                source: "prop".into(),
+            },
+            sid,
+            cv,
+            None,
+        );
+
+        let result1 = transition(&state1, &event, &dag).unwrap();
+        let result2 = transition(&state1, &event, &dag).unwrap();
+
+        assert_eq!(
+            result1.status, result2.status,
+            "transition must be deterministic — same status"
+        );
+        assert_eq!(
+            result1.version, result2.version,
+            "transition must be deterministic — same version"
+        );
+        assert_eq!(
+            result1.latest_event_id, result2.latest_event_id,
+            "transition must be deterministic — same event_id"
+        );
+    }
+
+    #[test]
+    fn prop_transition_version_is_monotonic() {
+        let sid = SessionId::from_bytes([8u8; 16]);
+        let dag = BTreeMap::new();
+        let mut state = NexusState::new(sid, 0);
+        let mut cv = CausalVector::new();
+
+        let events = vec![
+            EventType::IntentReceived {
+                raw_input: "monotonic".into(),
+                source: "prop".into(),
+            },
+            EventType::IntentParsed {
+                intent_graph: IntentGraph::default(),
+            },
+            EventType::PlanCommitted {
+                frontier: Frontier::empty(),
+            },
+            EventType::DependenciesMet,
+        ];
+
+        let mut prev_version = state.version;
+        for event_type in events {
+            cv.increment(sid);
+            let event = NexusEvent::new(event_type, sid, cv.clone(), None);
+            state = transition(&state, &event, &dag).unwrap();
+            assert!(
+                state.version > prev_version,
+                "version must increase monotonically: {} -> {}",
+                prev_version,
+                state.version
+            );
+            prev_version = state.version;
+        }
+    }
+
+    #[test]
+    fn prop_transition_invalid_event_returns_error() {
+        let sid = SessionId::from_bytes([9u8; 16]);
+        let dag = BTreeMap::new();
+        let state = NexusState::new(sid, 0);
+
+        // DependenciesMet on Created state is invalid (must go through Intake → ... → Planned)
+        let mut cv = CausalVector::new();
+        cv.increment(sid);
+        let event = NexusEvent::new(EventType::DependenciesMet, sid, cv, None);
+        let result = transition(&state, &event, &dag);
+        assert!(
+            result.is_err(),
+            "DependenciesMet on Created must fail — invalid transition"
+        );
+    }
+
+    #[test]
+    fn prop_transition_status_is_always_valid() {
+        let sid = SessionId::from_bytes([10u8; 16]);
+        let dag = BTreeMap::new();
+        let mut state = NexusState::new(sid, 0);
+        let mut cv = CausalVector::new();
+
+        // Full lifecycle: Created → Intake → Planning → Planned → Executing
+        let valid_statuses = [
+            SessionStatus::Created,
+            SessionStatus::Intake,
+            SessionStatus::Planning,
+            SessionStatus::Planned,
+            SessionStatus::Executing,
+        ];
+
+        for (i, expected) in valid_statuses[1..].iter().enumerate() {
+            cv.increment(sid);
+            let event_type = match i {
+                0 => EventType::IntentReceived {
+                    raw_input: "valid".into(),
+                    source: "prop".into(),
+                },
+                1 => EventType::IntentParsed {
+                    intent_graph: IntentGraph::default(),
+                },
+                2 => EventType::PlanCommitted {
+                    frontier: Frontier::empty(),
+                },
+                3 => EventType::DependenciesMet,
+                _ => unreachable!(),
+            };
+            let event = NexusEvent::new(event_type, sid, cv.clone(), None);
+            state = transition(&state, &event, &dag).unwrap();
+            assert_eq!(
+                &state.status, expected,
+                "after transition {}, expected {:?}, got {:?}",
+                i + 1,
+                expected,
+                state.status
+            );
+        }
+    }
+
+    #[test]
+    fn prop_transition_side_effect_guard_idempotent_replay() {
+        let mut guard = SideEffectGuard::new();
+        let sid = SessionId::from_bytes([11u8; 16]);
+        let tid = TaskId::from_bytes([12u8; 16]);
+
+        // Record intent twice with same request_hash → should return same ID
+        let intent = SideEffectIntent {
+            id: "prop_se_001".into(),
+            session_id: sid,
+            task_id: tid,
+            effect_class: SideEffectClass::Idempotent,
+            action_type: "write_file".into(),
+            target: "/tmp/prop_test.txt".into(),
+            payload: vec![1, 2, 3],
+            request_hash: "prop_hash_001".into(),
+            preconditions: vec![],
+        };
+
+        let eid1 = guard.record_intent(intent.clone()).unwrap();
+        let eid2 = guard.record_intent(intent).unwrap();
+
+        assert_eq!(
+            eid1, eid2,
+            "same request_hash must produce same effect_id (idempotent recording)"
+        );
+    }
+
+    #[test]
+    fn prop_transition_budget_enforcement() {
+        let sid = SessionId::from_bytes([13u8; 16]);
+        let mut state = NexusState::new(sid, 0);
+        state.budget.budget_limit_cents = 100;
+        state.budget.consumed_cents = 95;
+
+        // Budget: 100 cents, consumed 95, remaining 5
+        assert!(!state.budget.is_exhausted());
+        assert_eq!(state.budget.remaining_cents(), 5);
+
+        // Can't afford 10 cents
+        assert!(!state.budget.can_afford(10));
+
+        // Can afford 3 cents
+        assert!(state.budget.can_afford(3));
+
+        // Exhaust with 6 more
+        state.budget.add_cost(6, 100, 1);
+        assert!(state.budget.is_exhausted());
+    }
+
+    #[test]
+    fn prop_event_integrity_hash_deterministic() {
+        let sid = SessionId::from_bytes([14u8; 16]);
+        let mut cv = CausalVector::new();
+        cv.increment(sid);
+
+        let event = NexusEvent::new(
+            EventType::IntentReceived {
+                raw_input: "hash test".into(),
+                source: "prop".into(),
+            },
+            sid,
+            cv,
+            None,
+        );
+
+        let hash1 = event.compute_integrity_hash();
+        let hash2 = event.compute_integrity_hash();
+
+        assert_eq!(
+            hash1, hash2,
+            "integrity hash must be deterministic for same event"
+        );
+        assert_eq!(hash1.len(), 64, "hash must be 64 hex chars (BLAKE3 32 bytes)");
+    }
+
+    #[test]
+    fn prop_recovery_replay_is_byte_identical() {
+        let sid = SessionId::from_bytes([15u8; 16]);
+        let mut events = Vec::new();
+        let mut cv = CausalVector::new();
+
+        // Build full lifecycle events
+        for (i, event_type) in [
+            EventType::IntentReceived {
+                raw_input: "replay test".into(),
+                source: "prop".into(),
+            },
+            EventType::IntentParsed {
+                intent_graph: IntentGraph::default(),
+            },
+            EventType::PlanCommitted {
+                frontier: Frontier::empty(),
+            },
+            EventType::DependenciesMet,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            cv.increment(sid);
+            let event = NexusEvent::new(event_type, sid, cv.clone(), None);
+            events.push(event);
+            let _ = i;
+        }
+
+        // First replay
+        let dag = BTreeMap::new();
+        let mut state1 = NexusState::new(sid, events[0].event_timestamp);
+        for event in &events {
+            state1 = transition(&state1, event, &dag).unwrap();
+        }
+
+        // Second replay — must produce identical state
+        let mut state2 = NexusState::new(sid, events[0].event_timestamp);
+        for event in &events {
+            state2 = transition(&state2, event, &dag).unwrap();
+        }
+
+        assert_eq!(state1.status, state2.status, "replay: status must match");
+        assert_eq!(state1.version, state2.version, "replay: version must match");
+        assert_eq!(
+            state1.checkpoint_seq, state2.checkpoint_seq,
+            "replay: checkpoint_seq must match"
+        );
+    }
+}

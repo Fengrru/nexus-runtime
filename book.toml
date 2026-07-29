@@ -1,0 +1,38 @@
+[book]
+title = "Nexus Runtime"
+description = "Causally-consistent execution substrate for autonomous agent systems."
+authors = ["Fengrru <fengru1005@gmail.com>"]
+language = "en"
+multilingual = false
+src = "docs"
+
+[build]
+build-dir = "target/book"
+create-missing = false
+
+[output.html]
+mathjax-support = true
+git-repository-url = "https://github.com/Fengrru/nexus-runtime"
+git-repository-icon = "github"
+edit-url-template = "https://github.com/Fengrru/nexus-runtime/edit/main/docs/{path}"
+site-url = "/nexus-runtime/"
+cname = ""
+additional-css = []
+additional-js = []
+no-section-label = false
+fold.enable = true
+fold.level = 1
+
+[output.html.search]
+enable = true
+limit-results = 20
+teaser-word-count = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 2
+
+[output.html.playground]
+editable = false
+copyable = true
+copy-js = true
+line-numbers = false

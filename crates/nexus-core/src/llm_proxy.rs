@@ -133,24 +133,111 @@ impl LlmProxy {
         Ok((response, event))
     }
 
+    /// Generate a structured execution plan from intent keywords when no LLM is available.
+    /// Produces realistic JSON arrays with action_type, target, and parameters.
     async fn simulate_api_call(&self, request: &LlmRequest) -> Result<LlmResponse, ProxyError> {
         let input_tokens = request.prompt.len() as u64 / 4;
         let output_tokens = request.max_tokens.min(4096);
 
         let cost_cents = self.estimate_cost(&request.model, output_tokens);
 
+        // Generate a structured plan based on keywords in the intent prompt
+        let prompt_lower = request.prompt.to_lowercase();
+        let mut steps: Vec<serde_json::Value> = Vec::new();
+
+        let has_read = prompt_lower.contains("read")
+            || prompt_lower.contains("analyze")
+            || prompt_lower.contains("audit")
+            || prompt_lower.contains("review")
+            || prompt_lower.contains("inspect");
+        let has_search = prompt_lower.contains("grep")
+            || prompt_lower.contains("search")
+            || prompt_lower.contains("find")
+            || prompt_lower.contains("locate");
+        let has_write = prompt_lower.contains("write")
+            || prompt_lower.contains("report")
+            || prompt_lower.contains("create")
+            || prompt_lower.contains("generate")
+            || prompt_lower.contains("output")
+            || prompt_lower.contains("save");
+        let has_run = prompt_lower.contains("run")
+            || prompt_lower.contains("test")
+            || prompt_lower.contains("build")
+            || prompt_lower.contains("compile")
+            || prompt_lower.contains("execute")
+            || prompt_lower.contains("command");
+
+        // First, read input files if intent mentions reading/analysis
+        if has_read {
+            steps.push(serde_json::json!({
+                "action_type": "read_file",
+                "target": "README.md",
+                "parameters": {"encoding": "utf-8"}
+            }));
+        }
+
+        // Search for patterns if intent mentions searching
+        if has_search {
+            steps.push(serde_json::json!({
+                "action_type": "grep",
+                "target": ".",
+                "parameters": {
+                    "pattern": "TODO|FIXME|HACK|BUG",
+                    "include": "*.{rs,py,js,ts}"
+                }
+            }));
+        }
+
+        // Run analysis/execution if intent mentions running
+        if has_run {
+            steps.push(serde_json::json!({
+                "action_type": "run_command",
+                "target": ".",
+                "parameters": {"command": "echo analysis complete"}
+            }));
+        }
+
+        // Write output if intent mentions writing
+        if has_write {
+            steps.push(serde_json::json!({
+                "action_type": "write_file",
+                "target": "output.md",
+                "parameters": {"encoding": "utf-8", "append": false}
+            }));
+        }
+
+        // Default fallback: at minimum, grep the README
+        if steps.is_empty() {
+            steps.push(serde_json::json!({
+                "action_type": "grep",
+                "target": "README.md",
+                "parameters": {"pattern": "Nexus"}
+            }));
+            steps.push(serde_json::json!({
+                "action_type": "read_file",
+                "target": "README.md",
+                "parameters": {"encoding": "utf-8"}
+            }));
+        }
+
+        let content = serde_json::to_string_pretty(&steps)
+            .unwrap_or_else(|_| "[]".to_string());
+
+        tracing::info!(
+            target = "nexus.llm_proxy",
+            steps = %steps.len(),
+            "Simulated structured plan generated"
+        );
+
         Ok(LlmResponse {
             request_id: request.request_id.clone(),
             model: request.model.clone(),
-            content: format!(
-                "Simulated response for: {}",
-                &request.prompt[..50.min(request.prompt.len())]
-            ),
+            content,
             input_tokens,
             output_tokens,
             cost_cents,
-            response_hash: compute_hash(b"simulated_response"),
-            latency_ms: 200,
+            response_hash: compute_hash(b"simulated_structured_response"),
+            latency_ms: 50,
         })
     }
 

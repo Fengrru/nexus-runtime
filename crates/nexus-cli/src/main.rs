@@ -222,73 +222,40 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
         }
     };
 
-    let mut state = NexusState::new(session_id, now_millis());
-    let dag = BTreeMap::new();
+    let llm_proxy = LlmProxy::new(b"nexus-kernel-signing-key-32b".to_vec());
+    let mut driver = SessionDriver::new(session_id, store, llm_proxy);
+    driver.state.budget.budget_limit_cents = budget_cents;
 
-    let mut cv = CausalVector::new();
-    cv.increment(session_id);
-
-    let event = NexusEvent::new(
-        EventType::IntentReceived {
-            raw_input: intent.to_string(),
-            source: "cli".to_string(),
-        },
-        session_id,
-        cv.clone(),
-        None,
-    );
-
-    match store.append_event(&event).await {
-        Ok(()) => println!("[INTAKE] Intent received"),
+    // Phase 1: Intake
+    match driver.intake(intent, "cli").await {
+        Ok(()) => println!("[INTAKE] Intent received → {:?}", driver.state.status),
         Err(e) => {
-            println!("[ERR] {}", e);
+            println!("[ERR] Intake failed: {}", e);
             return;
         }
     }
-    state.latest_event_id = event.event_id.clone();
-    state = transition(&state, &event, &dag).unwrap();
-    println!("        Status: {:?}", state.status);
 
-    cv.increment(session_id);
-    let parsed_event = NexusEvent::new(
-        EventType::IntentParsed {
-            intent_graph: IntentGraph::default(),
-        },
-        session_id,
-        cv.clone(),
-        None,
+    // Phase 2: Parse
+    match driver.parse(IntentGraph::default()).await {
+        Ok(()) => println!("[PARSE]  Intent parsed → {:?}", driver.state.status),
+        Err(e) => {
+            println!("[ERR] Parse failed: {}", e);
+            return;
+        }
+    }
+
+    // Phase 3: LLM planning
+    let llm_prompt = format!(
+        "You are a task planner. Decompose this user intent into executable steps.\n\
+         Intent: {}\n\
+         Output a JSON array of steps, each step has: action_type (read_file/write_file/grep/run_command), target (file path), and parameters (key-value map).\n\
+         Reply with ONLY the JSON array, no other text.",
+        intent
     );
-    store.append_event(&parsed_event).await.ok();
-    state.latest_event_id = parsed_event.event_id.clone();
-    state = transition(&state, &parsed_event, &dag).unwrap();
-    println!("[PARSE]  Intent parsed → {:?}", state.status);
 
-    // Real LLM planning via Kernel proxy (spec: LLM calls are externalized events)
-    let mut llm_proxy = LlmProxy::new(b"nexus-kernel-signing-key-32b".to_vec());
-    let llm_request = LlmRequest {
-        request_id: format!("req_{}", now_millis()),
-        session_id,
-        model: model.to_string(),
-        prompt: format!(
-            "You are a task planner. Decompose this user intent into executable steps.\n\
-             Intent: {}\n\
-             Output a JSON array of steps, each step has: action_type (read_file/write_file/grep/run_command), target (file path), and parameters (key-value map).\n\
-             Reply with ONLY the JSON array, no other text.",
-            intent
-        ),
-        max_tokens: 2048,
-        temperature: 0.3,
-    };
-
-    let mut budget_state = state.budget.clone();
-
-    let llm_plan;
-
-    match llm_proxy
-        .proxy_call(llm_request, &mut budget_state, &cv)
-        .await
-    {
-        Ok((response, llm_event)) => {
+    let llm_plan: String;
+    match driver.plan_with_llm(model, &llm_prompt).await {
+        Ok(response) => {
             println!(
                 "[LLM]    {} → {} in, {} out, ${:.4} cost",
                 model,
@@ -300,17 +267,9 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
                 "         Plan: {}",
                 &response.content[..200.min(response.content.len())]
             );
-            llm_plan = response.content.clone();
-
-            cv.increment(session_id);
-            store.append_event(&llm_event).await.ok();
-            state.latest_event_id = llm_event.event_id.clone();
-            state.budget = budget_state.clone();
-            if let Ok(next) = transition(&state, &llm_event, &dag) {
-                state = next;
-            }
+            llm_plan = response.content;
         }
-        Err(ProxyError::ApiError(ref msg)) if msg.contains("not set") => {
+        Err(SessionDriverError::LlmApiKeyNotSet(_)) => {
             println!("[LLM]    No API key set — using simulated plan");
             llm_plan = "[{\"action_type\": \"grep\", \"target\": \"README.md\", \"parameters\": {\"pattern\": \"Nexus\"}}]".to_string();
             println!("         Plan: {}", llm_plan);
@@ -321,31 +280,28 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
         }
     }
 
-    cv.increment(session_id);
-    let plan_event = NexusEvent::new(
-        EventType::PlanCommitted {
-            frontier: Frontier {
-                nodes: vec![],
-                blocked: vec![],
-                completed: vec![],
-            },
-        },
-        session_id,
-        cv.clone(),
-        None,
-    );
-    store.append_event(&plan_event).await.ok();
-    state.latest_event_id = plan_event.event_id.clone();
-    state = transition(&state, &plan_event, &dag).unwrap();
-    println!("[PLAN]   Plan committed → {:?}", state.status);
+    // Phase 4: Commit plan
+    match driver.commit_plan(Frontier::empty()).await {
+        Ok(()) => println!("[PLAN]   Plan committed → {:?}", driver.state.status),
+        Err(e) => {
+            println!("[ERR] Plan commit failed: {}", e);
+            return;
+        }
+    }
 
-    cv.increment(session_id);
-    let deps_event = NexusEvent::new(EventType::DependenciesMet, session_id, cv.clone(), None);
-    store.append_event(&deps_event).await.ok();
-    state.latest_event_id = deps_event.event_id.clone();
-    state = transition(&state, &deps_event, &dag).unwrap();
-    println!("[EXEC]   Dependencies met → {:?}", state.status);
+    // Phase 5: Mark dependencies met → Executing
+    match driver.mark_dependencies_met().await {
+        Ok(()) => println!("[EXEC]   Dependencies met → {:?}", driver.state.status),
+        Err(e) => {
+            println!("[ERR] Dependencies failed: {}", e);
+            return;
+        }
+    }
 
+    // Persist state before spawning worker
+    driver.persist_state().await.ok();
+
+    // Phase 6: Worker execution
     let task_id = TaskId::new();
     let spawner = WorkerSpawner::new().with_python("python");
 
@@ -378,36 +334,28 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
 
             let mut checkpoints = 0u64;
             let mut completed = false;
-            let mut failed = false;
 
             while let Some(msg) = WorkerSpawner::read_response(&mut handle) {
                 if msg.get("method").is_some_and(|m| m == "checkpoint") {
                     checkpoints += 1;
-                    cv.increment(session_id);
-                    let cp_event = NexusEvent::new(
-                        EventType::WorkerCheckpoint {
-                            task_id,
-                            step_index: checkpoints,
-                            actions: vec![],
-                            artifacts: vec![],
-                        },
-                        session_id,
-                        cv.clone(),
-                        Some(state.latest_event_id.clone()),
-                    );
-                    store.append_event(&cp_event).await.ok();
-                    state.latest_event_id = cp_event.event_id.clone();
-                    if let Ok(next) = transition(&state, &cp_event, &dag) {
-                        state = next;
+                    match driver
+                        .checkpoint(task_id, checkpoints, vec![], vec![])
+                        .await
+                    {
+                        Ok(()) => {
+                            println!(
+                                "[CKPT]   Step {} → {:?}",
+                                checkpoints, driver.state.status
+                            );
+                        }
+                        Err(e) => println!("[CKPT]   Store error: {}", e),
                     }
-                    println!("[CKPT]   Step {} → {:?}", checkpoints, state.status);
                 } else if msg.get("result").is_some()
-                    && state.status == SessionStatus::Checkpointing
+                    && driver.state.status == SessionStatus::Checkpointing
                 {
                     completed = true;
                     break;
                 } else if msg.get("error").is_some() {
-                    failed = true;
                     break;
                 } else if msg.get("result").is_some() {
                     completed = true;
@@ -416,12 +364,11 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
             }
 
             if completed {
-                cv.increment(session_id);
-                let done_event = NexusEvent::new(
-                    EventType::WorkerCompleted {
-                        worker_id: "python-worker".into(),
+                match driver
+                    .worker_completed(
+                        "python-worker",
                         task_id,
-                        result: WorkerResult {
+                        WorkerResult {
                             status: "completed".into(),
                             artifacts: vec![],
                             metrics: WorkerMetrics {
@@ -430,52 +377,42 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
                                 cost_cents: 0,
                             },
                         },
-                        duration_ms: 0,
-                    },
-                    session_id,
-                    cv.clone(),
-                    Some(state.latest_event_id.clone()),
-                );
-                store.append_event(&done_event).await.ok();
-                state.latest_event_id = done_event.event_id.clone();
-                if let Ok(next) = transition(&state, &done_event, &dag) {
-                    state = next;
+                        0,
+                    )
+                    .await
+                {
+                    Ok(()) => println!("[OK]     Worker completed → {:?}", driver.state.status),
+                    Err(e) => println!("[WARN]   State update error: {}", e),
                 }
-                println!("[OK]     Worker completed → {:?}", state.status);
                 true
             } else {
-                cv.increment(session_id);
-                let fail_event = NexusEvent::new(
-                    EventType::WorkerFailed {
-                        worker_id: "python-worker".into(),
+                match driver
+                    .worker_failed(
+                        "python-worker",
                         task_id,
-                        error: "Worker error".into(),
-                        error_code: ErrorCode::Retryable,
-                        retry_count: 0,
-                    },
-                    session_id,
-                    cv.clone(),
-                    Some(state.latest_event_id.clone()),
-                );
-                store.append_event(&fail_event).await.ok();
-                state.latest_event_id = fail_event.event_id.clone();
-                if let Ok(next) = transition(&state, &fail_event, &dag) {
-                    state = next;
+                        "Worker error",
+                        ErrorCode::Retryable,
+                        0,
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        println!("[FAIL]   Worker failed → {:?}", driver.state.status)
+                    }
+                    Err(e) => println!("[WARN]   State update error: {}", e),
                 }
-                println!("[FAIL]   Worker failed → {:?}", state.status);
-                failed
+                true
             }
         }
         Err(e) => {
             println!("[WORKER] Could not spawn: {}", e);
             eprintln!("         Running in demo mode.");
 
-            cv.increment(session_id);
-            let done_event = NexusEvent::new(
-                EventType::WorkerCompleted {
-                    worker_id: "inline".into(),
+            match driver
+                .worker_completed(
+                    "inline",
                     task_id,
-                    result: WorkerResult {
+                    WorkerResult {
                         status: "completed".into(),
                         artifacts: vec![],
                         metrics: WorkerMetrics {
@@ -484,25 +421,24 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
                             cost_cents: 0,
                         },
                     },
-                    duration_ms: 0,
-                },
-                session_id,
-                cv.clone(),
-                Some(state.latest_event_id.clone()),
-            );
-            store.append_event(&done_event).await.ok();
-            state.latest_event_id = done_event.event_id.clone();
-            state = transition(&state, &done_event, &dag).unwrap();
+                    0,
+                )
+                .await
+            {
+                Ok(()) => {}
+                Err(e) => println!("[WARN]   State update error: {}", e),
+            }
             true
         }
     };
 
+    driver.persist_state().await.ok();
+
     let verdict = if worker_success { "OK" } else { "FAILED" };
-    store.update_state(&state, state.version - 1).await.ok();
     println!();
     println!(
         "[{verdict}]   Session {verdict} — status {:?}",
-        state.status
+        driver.state.status
     );
     println!("Use 'nexus status {}' to check.", session_id.to_hex());
 }

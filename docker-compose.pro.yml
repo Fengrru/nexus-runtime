@@ -1,16 +1,28 @@
 version: '3.8'
 services:
   nexus:
-    image: nexus/pro:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nexus-runtime/pro:latest
     ports:
       - "3000:3000"
     environment:
       - NEXUS_MODE=pro
       - NEXUS_DB_URL=postgres://nexus:password@postgres:5432/nexus
       - NEXUS_REDIS_URL=redis://redis:6379
+      - NEXUS_DB_PATH=/home/nexus/.nexus/events.db
+      - NEXUS_VAULT_PATH=/home/nexus/.nexus/vault
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - nexus_data:/home/nexus/.nexus
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
 
   postgres:
     image: postgres:16
@@ -20,12 +32,23 @@ services:
       - POSTGRES_DB=nexus
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
   redis_data:
+  nexus_data:

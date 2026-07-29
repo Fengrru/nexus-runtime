@@ -75,6 +75,37 @@ impl Default for TraceId {
     }
 }
 
+/// A vector clock tracking causal ordering across distributed sessions.
+///
+/// Each entry maps a [`SessionId`] to a monotonically increasing counter.
+/// The vector clock enables:
+///
+/// - **Happens-before** detection via [`happened_before`](CausalVector::happened_before)
+/// - **Concurrency** detection via [`is_concurrent`](CausalVector::is_concurrent)
+/// - **Commutative merges** via [`merge`](CausalVector::merge) — merging is idempotent
+///
+/// Uses `BTreeMap` (not `HashMap`) for deterministic iteration order,
+/// which is required for byte-identical serialization during replay.
+///
+/// # Examples
+///
+/// ```
+/// use nexus_core::{CausalVector, SessionId};
+///
+/// let sid_a = SessionId::from_bytes([1u8; 16]);
+/// let sid_b = SessionId::from_bytes([2u8; 16]);
+///
+/// let mut cv1 = CausalVector::new();
+/// cv1.increment(sid_a);
+/// cv1.increment(sid_a);
+///
+/// let mut cv2 = CausalVector::new();
+/// cv2.increment(sid_a);
+/// cv2.increment(sid_b);
+///
+/// // cv1 happened before cv2 at sid_a (1 < 2), and cv2 has sid_b
+/// assert!(cv1.happened_before(&cv2));
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CausalVector(pub BTreeMap<SessionId, u64>);
 
@@ -119,7 +150,12 @@ impl CausalVector {
     }
 
     pub fn is_consistent(&self) -> bool {
-        true
+        // A causal vector is consistent if all counts are positive
+        // and the vector is not empty (must have at least one entry)
+        if self.0.is_empty() {
+            return false;
+        }
+        self.0.values().all(|&count| count > 0)
     }
 
     pub fn to_canonical(&self) -> String {
@@ -442,6 +478,22 @@ pub enum ArtifactKind {
     Log,
 }
 
+/// The full state of a Nexus session — the materialized view of the event log.
+///
+/// All fields are derived deterministically from the append-only event log.
+/// State is reconstructed by replaying events through [`transition`](crate::transition).
+///
+/// # Key Fields
+///
+/// | Field | Purpose |
+/// |-------|---------|
+/// | `session_id` | Unique identifier (UUID v4 in 16 bytes) |
+/// | `version` | Monotonic counter, incremented on every transition |
+/// | `status` | Current [`SessionStatus`] in the state machine |
+/// | `causal_vector` | Vector clock for causal ordering across sessions |
+/// | `budget` | Cost tracking with limit enforcement |
+/// | `checkpoint_seq` | Latest worker checkpoint sequence number |
+/// | `execution_frontier` | Tasks currently in the execution front |
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NexusState {
     pub session_id: SessionId,

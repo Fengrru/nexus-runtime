@@ -21,9 +21,17 @@ members = [
 [workspace.package]
 version = "1.0.0"
 edition = "2021"
+authors = ["Fengrru <fengru1005@gmail.com>"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/nexus-runtime/nexus"
+repository = "https://github.com/Fengrru/nexus-runtime"
 rust-version = "1.80"
+documentation = "https://fengrru.github.io/nexus-runtime/"
+
+[workspace.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "x86_64-apple-darwin"]
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

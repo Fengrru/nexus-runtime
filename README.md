@@ -4,15 +4,21 @@
 
 **Causally-consistent execution substrate for autonomous agent systems.**
 
-[![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org)
+[![CI](https://github.com/Fengrru/nexus-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/Fengrru/nexus-runtime/actions/workflows/ci.yml)
+[![MSRV](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org)
+[![codecov](https://codecov.io/gh/Fengrru/nexus-runtime/branch/main/graph/badge.svg)](https://codecov.io/gh/Fengrru/nexus-runtime)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-132%20passed-brightgreen.svg)]()
+[![Security Audit](https://github.com/Fengrru/nexus-runtime/actions/workflows/ci.yml/badge.svg?job=security)](https://github.com/Fengrru/nexus-runtime/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-fengrru.github.io-blue)](https://fengrru.github.io/nexus-runtime/)
+[![docs.rs](https://img.shields.io/docsrs/nexus-core)](https://docs.rs/nexus-core)
 
 </div>
 
-Nexus Runtime is not an agent framework, not a chatbot wrapper, not a cloud SaaS. It is infrastructure that makes agent execution durable, auditable, and portable.
+Nexus Runtime is an infrastructure layer that makes agent execution **durable, auditable, and portable**. The core state machine, event store, and recovery engine are stable after multiple design iterations since early 2026. Enterprise features (Kubernetes, Temporal) are in active development.
 
 **Core principle:** The event log is the source of truth. State is a materialized view. Workers are stateless. The Kernel owns causality.
+
+> 📖 **Documentation:** [Book](https://fengrru.github.io/nexus-runtime/) · [API (docs.rs)](https://docs.rs/nexus-core) · [Protocol Spec](https://fengrru.github.io/nexus-runtime/protocol/overview.html) · [ADRs](https://fengrru.github.io/nexus-runtime/adr/ADR-001-deterministic-runtime.html)
 
 ---
 
@@ -88,23 +94,19 @@ $ nexus resume <session-id>
 
 ## Crates
 
-| Crate | Purpose |
-|-------|---------|
-| `nexus-core` | Types, state machine (`transition()` pure function), events, checkpoints, memory graph, recovery, side-effect guard, entropy controller, protocol, LLM proxy, vault, WASM sandbox, worker spawner |
-| `nexus-event-store` | EventStore trait + SQLite, PostgreSQL implementations with full schema (9 tables, foreign keys, WAL) |
-| `nexus-rpc` | JSON-RPC 2.0 codec over stdio (NDJSON framing) |
-| `nexus-security` | HMAC-SHA256 capability tokens, sandbox tiers (Landlock/seccomp/audit), path traversal protection |
-| `nexus-scheduler` | Local, Docker (Bollard), and Kubernetes (kube-rs) worker schedulers with capability-aware dispatch |
-| `nexus-cli` | CLI binary (`nexus run`, `status`, `log`, `resume`, `suspend`, `archive`, `export`, `import`) |
-| `nexus-metrics` | Prometheus metrics for events, transitions, workers, LLM calls, entropy |
-| `nexus-coordinator` | Multi-agent coordination |
-| `nexus-message-bus` | Distributed causal bus |
-| `nexus-temporal` | Temporal durable execution adapter |
-| `phoenix-tests` | Acceptance test framework — 8 invariants, 6 kill-9 phase tests, 10 Phoenix suite tests, 4 cross-tool migration tests |
-| `openclaw-adapter` | OpenClaw Gateway session bridging with HTTP integration |
-| `hermes-adapter` | Hermes CLI checkpoint persistence and file-based session transfer |
-| `nexus-sdk` | Rust SDK re-exporting nexus-core |
-| `rust-worker` | Rust worker implementing JSON-RPC 2.0 over stdio |
+| Crate | Purpose | Status |
+|-------|---------|--------|
+| `nexus-core` | State machine, events, recovery, LLM proxy, side-effect guard, vault, WASM sandbox | ✅ Stable |
+| `nexus-event-store` | EventStore trait + SQLite and PostgreSQL implementations | ✅ Stable |
+| `nexus-rpc` | JSON-RPC 2.0 codec over stdio (NDJSON) | ✅ Stable |
+| `nexus-security` | HMAC-SHA256 capability tokens, sandbox tiers | ✅ Stable |
+| `nexus-cli` | CLI binary (`run`, `status`, `log`, `resume`, `suspend`, `archive`, `export`, `import`) | ✅ Stable |
+| `nexus-scheduler` | Local, Docker, Kubernetes worker schedulers | ⚡ Beta |
+| `nexus-coordinator` | Multi-agent coordination (propose/vote/commit/converge) | ⚡ Beta |
+| `nexus-temporal` | Temporal durable execution adapter | ⚡ Beta |
+| `phoenix-tests` | Acceptance tests — 8 invariants, 6 kill-9 tests | ✅ Stable |
+
+> See [**API docs**](https://docs.rs/nexus-core) for full module documentation.
 
 ---
 
@@ -136,82 +138,40 @@ Without an API key, the LLM proxy falls back to simulation mode.
 
 ## Deployment Modes
 
-| Mode | Storage | Scheduler | Requirements |
-|------|---------|-----------|--------------|
-| **Lite** | SQLite (WAL) | Local process | Zero dependencies |
-| **Pro** | PostgreSQL | Docker | Docker daemon |
-| **Enterprise** | PostgreSQL + Temporal | Kubernetes | K8s cluster |
+| Mode | Storage | Scheduler | Requirements | Status |
+|------|---------|-----------|--------------|--------|
+| **Lite** | SQLite (WAL) | Local process | Zero dependencies | ✅ Ready |
+| **Pro** | PostgreSQL | Docker | Docker daemon | ⚡ Beta |
+| **Enterprise** | PostgreSQL + Temporal | Kubernetes | K8s cluster | 🚧 Roadmap |
 
-All three modes share identical protocol semantics and state machine behavior.
+All modes share identical protocol semantics and state machine behavior.
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-- Rust 1.80+ (`rustup`)
-- Optional: Python 3.11+ (for Python worker), Node.js 20+ (for Node.js worker)
-
-### Build & Test
-
 ```bash
-# Clone
-git clone https://github.com/nexus-runtime/nexus.git
-cd nexus
-
-# Build
+# Build (Rust 1.80+)
 cargo build --bin nexus
 
-# Run tests (132 tests, all must pass)
-cargo test
-
-# Run Phoenix acceptance tests
-cargo test --package phoenix-tests
-
-# Check code quality
-cargo clippy --all-targets
-```
-
-### Run a Session
-
-```bash
-# Lite mode — zero infrastructure, uses SQLite
+# Run your first session
 ./target/debug/nexus run "read the README and summarize it"
 
 # With a real LLM
 export DEEPSEEK_API_KEY="sk-..."
-./target/debug/nexus run "analyze auth.js for security vulnerabilities" --model deepseek-chat
-```
+./target/debug/nexus run "analyze auth.js for security flaws" --model deepseek-chat
 
-### Inspect & Recover
-
-```bash
-# Check session status
-./target/debug/nexus status <session-id>
-
-# View event log (immutable, append-only)
-./target/debug/nexus log <session-id> --limit 20
-
-# Simulate crash recovery
+# Crash recovery
 ./target/debug/nexus resume <session-id>
-
-# Export for cross-tool migration
-./target/debug/nexus export <session-id> --output session.nexus
-
-# Import from another tool
-./target/debug/nexus import session.nexus
 ```
-
-### Docker Deploy
 
 ```bash
-# Lite mode
-docker-compose -f docker-compose.lite.yml up
-
-# Pro mode (requires PostgreSQL + Redis)
-docker-compose -f docker-compose.pro.yml up
+# Docker deploy
+docker-compose -f docker-compose.lite.yml up       # Lite: SQLite, zero deps
+docker-compose -f docker-compose.pro.yml up         # Pro: PostgreSQL + Redis
 ```
+
+> 📚 Full setup guide: [Getting Started](https://fengrru.github.io/nexus-runtime/tutorials/getting-started.html)
 
 ---
 
@@ -246,6 +206,91 @@ Workers have no network access, no persistent state, and receive capability toke
 
 ---
 
+## SDK Quick Start
+
+### Python
+
+```python
+from nexus import NexusRuntime, Event, Budget
+
+runtime = NexusRuntime()
+
+# Open a session
+session = runtime.session("refactor auth to JWT")
+session.budget.set_limit_usd(5.00)
+
+# Feed events to the state machine
+session.intake(source="python-sdk")
+session.parse(intent_graph={"nodes": {}})
+
+# Plan with LLM (returns structured JSON plan)
+plan = session.plan_with_llm(model="deepseek-chat")
+print(f"Plan: {plan}")
+
+# Execute
+session.commit_plan()
+session.mark_dependencies_met()
+
+# Check status
+print(f"Status: {session.status}")
+print(f"Budget: {session.budget.remaining_cents()} / {session.budget.limit_cents} cents")
+```
+
+### Node.js
+
+```javascript
+const { NexusRuntime } = require('nexus-runtime');
+
+const nexus = new NexusRuntime();
+
+async function main() {
+  const session = await nexus.session('audit security in auth.js');
+
+  await session.intake({ source: 'node-sdk' });
+  await session.parse({ intent_graph: {} });
+
+  // Plan via LLM
+  const plan = await session.planWithLLM({ model: 'gpt-4o' });
+  console.log('Plan:', plan.slice(0, 200));
+
+  // Commit and execute
+  await session.commitPlan();
+  await session.markDependenciesMet();
+
+  console.log('Status:', session.status);
+}
+
+main().catch(console.error);
+```
+
+### Rust
+
+```rust
+use nexus_sdk::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut session = SessionDriver::new(
+        SessionId::new(),
+        store,
+        LlmProxy::new(b"signing-key".to_vec()),
+    );
+
+    session.intake("refactor auth", "rust-sdk").await?;
+    session.parse(IntentGraph::default()).await?;
+
+    let plan = session.plan_with_llm("claude-3.5-sonnet", "Plan this task").await?;
+    println!("Plan: {}", plan.content);
+
+    session.commit_plan(Frontier::empty()).await?;
+    session.mark_dependencies_met().await?;
+
+    Ok(())
+}
+```
+
+---
+
 ## Causal Consistency
 
 Every event carries a vector clock (`BTreeMap<SessionId, u64>`). The state machine enforces monotonicity — events must have a causal vector ≥ the current state. This guarantees:
@@ -259,8 +304,8 @@ Every event carries a vector clock (`BTreeMap<SessionId, u64>`). The state machi
 ## Testing
 
 ```bash
-cargo test                           # 132 tests, all passing
-cargo test --package phoenix-tests   # 26 Phoenix tests
+cargo test                           # Unit + integration + property tests
+cargo test --package phoenix-tests   # 26 Phoenix acceptance tests (8 invariants, 10 scenarios)
 cargo bench --bench benchmarks       # Performance benchmarks
 cargo clippy --all-targets           # Zero warnings
 cargo deny check                     # License/security audit
@@ -328,7 +373,17 @@ nexus/
 
 Licensed under either of:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-MIT) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-MIT) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions, testing requirements, and PR process. See [SECURITY.md](SECURITY.md) for our security policy and responsible disclosure process. New features follow the [proposal process](proposals/README.md).
+
+## Community
+
+- 💬 [GitHub Discussions](https://github.com/Fengrru/nexus-runtime/discussions) — Questions, ideas, RFCs
+- 🐛 [GitHub Issues](https://github.com/Fengrru/nexus-runtime/issues) — Bug reports, feature requests
+- 🔒 [Security Policy](SECURITY.md) — Responsible disclosure

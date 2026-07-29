@@ -19,6 +19,7 @@ tracing.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 wasmtime.workspace = true
+async-trait.workspace = true
 
 [dev-dependencies]
 hex-literal.workspace = true

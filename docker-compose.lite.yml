@@ -1,10 +1,18 @@
 version: '3.8'
 services:
   nexus:
-    image: nexus/lite:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nexus-runtime/lite:latest
     volumes:
-      - ~/.nexus:/data
+      - nexus_data:/home/nexus/.nexus
     environment:
       - NEXUS_MODE=lite
-      - NEXUS_DB_PATH=/data/events.db
-      - NEXUS_VAULT_PATH=/data/vault
+      - NEXUS_DB_PATH=/home/nexus/.nexus/events.db
+      - NEXUS_VAULT_PATH=/home/nexus/.nexus/vault
+    stdin_open: true
+    tty: true
+
+volumes:
+  nexus_data:

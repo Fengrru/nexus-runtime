@@ -3,9 +3,10 @@ Session — Represents a single Nexus execution session.
 """
 import json
 import time
+import uuid
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
     from .runtime import Runtime
@@ -33,20 +34,142 @@ class Session:
     budget_limit_cents: int
     status: SessionStatus = SessionStatus.CREATED
     checkpoint_seq: int = 0
+    _worker_result: Optional[Dict[str, Any]] = field(default=None, repr=False)
 
     @property
     def id(self) -> str:
         return self.session_id
 
-    def run(self) -> "Session":
-        """Execute the session synchronously (simulated for SDK)."""
+    @property
+    def result(self) -> Optional[Dict[str, Any]]:
+        """Return the worker execution result, or None if not yet run."""
+        return self._worker_result
+
+    @property
+    def succeeded(self) -> bool:
+        """True if the session completed successfully."""
+        return self.status == SessionStatus.COMPLETED
+
+    def run(self, plan_steps: Optional[List[Dict]] = None) -> "Session":
+        """Execute the session by spawning a real worker subprocess.
+
+        The worker is invoked via JSON-RPC 2.0 over stdio (NDJSON framing).
+        If plan_steps is provided, it is sent as the execution plan;
+        otherwise the raw intent string is parsed into a single-step plan.
+        """
+        # Intake phase
         self._transition(SessionStatus.INTAKE)
+
+        # Build the intent payload for the worker
+        if plan_steps:
+            intent_payload = {
+                "action_type": "execute_plan",
+                "target": "",
+                "parameters": {"plan": json.dumps(plan_steps)},
+            }
+        else:
+            # Parse intent string into a simple action dispatch
+            intent_payload = self._parse_intent(self.intent)
+
+        # Planning phase
         self._transition(SessionStatus.PLANNING)
+
+        # Phase checkpoint before execution
         self._transition(SessionStatus.PLANNED)
+
+        # Spawn worker and execute
+        task_id = uuid.uuid4().hex
         self._transition(SessionStatus.EXECUTING)
-        self._checkpoint(1)
-        self._transition(SessionStatus.COMPLETED)
+
+        try:
+            result = self.runtime._spawn_worker(self, task_id, intent_payload)
+        except FileNotFoundError as e:
+            self._worker_result = {
+                "status": "failed",
+                "error": str(e),
+                "artifacts": [],
+                "metrics": {},
+                "events": [],
+                "checkpoint_count": 0,
+            }
+            self._transition(SessionStatus.FAILED)
+            return self
+
+        self._worker_result = result
+
+        # Persist checkpoint events from the worker
+        for evt in result.get("events", []):
+            if evt.get("type") == "checkpoint":
+                self._checkpoint(evt.get("step", 1))
+
+        # Final status
+        if result.get("status") == "completed":
+            self._transition(SessionStatus.COMPLETED)
+        else:
+            self._transition(SessionStatus.FAILED)
+
         return self
+
+    def _parse_intent(self, intent_text: str) -> Dict[str, Any]:
+        """Parse a natural-language intent into an action dispatch.
+
+        Simple keyword matching — in production this would use the LLM planner.
+        """
+        lower = intent_text.lower()
+
+        # Check for multi-step markers
+        if "{" in intent_text and "action_type" in intent_text:
+            try:
+                return json.loads(intent_text)
+            except json.JSONDecodeError:
+                pass
+
+        # Read file
+        if any(w in lower for w in ["read", "show", "display", "cat", "view", "inspect"]):
+            # Try to extract a file path (Unix and Windows)
+            import re
+            path_match = re.search(r'["\']?([^\s"\'<>|?*]*\.\w{1,10})["\']?', intent_text)
+            if path_match:
+                return {
+                    "action_type": "read_file",
+                    "target": path_match.group(1),
+                    "parameters": {},
+                }
+
+        # Write file
+        if any(w in lower for w in ["write", "create", "generate", "save"]):
+            import re
+            path_match = re.search(r'["\']?([^\s"\'<>|?*]*\.\w{1,10})["\']?', intent_text)
+            return {
+                "action_type": "write_file",
+                "target": path_match.group(1) if path_match else "output.txt",
+                "parameters": {"content": intent_text},
+            }
+
+        # Search/grep
+        if any(w in lower for w in ["search", "find", "grep", "locate", "look for"]):
+            import re
+            path_match = re.search(r'["\']?([^\s"\'<>|?*]*\.\w{1,10})["\']?', intent_text)
+            return {
+                "action_type": "grep",
+                "target": path_match.group(1) if path_match else ".",
+                "parameters": {"pattern": intent_text.split()[-1] if intent_text.split() else ""},
+            }
+
+        # Run command
+        if any(w in lower for w in ["run", "execute", "command", "test", "build", "compile"]):
+            return {
+                "action_type": "run_command",
+                "target": intent_text,
+                "parameters": {"command": intent_text},
+            }
+
+        # Default: treat as a read action on the intent itself
+        return {
+            "action_type": "read_file",
+            "target": intent_text,
+            "parameters": {},
+        }
 
     def _transition(self, status: SessionStatus):
         from .event import NexusEvent
@@ -54,7 +177,7 @@ class Session:
             event_id=f"e_{int(time.time()*1000)}_{id(self)}",
             event_type=f"session_{status.value}",
             session_id=self.session_id,
-            causal_vector={self.session_id: self.checkpoint_seq + 1},
+            causal_vector=json.dumps({self.session_id: self.checkpoint_seq + 1}),
         )
         self._persist_event(event)
         self.status = status
@@ -66,7 +189,7 @@ class Session:
             event_id=f"cp_{int(time.time()*1000)}_{step}",
             event_type="worker_checkpoint",
             session_id=self.session_id,
-            causal_vector={self.session_id: step},
+            causal_vector=json.dumps({self.session_id: step}),
         )
         self._persist_event(event)
 

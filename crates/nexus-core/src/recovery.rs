@@ -238,8 +238,86 @@ impl RecoveryManager {
         Ok(())
     }
 
-    pub fn load_latest_checkpoint(&self, _session_id: SessionId) -> Option<Checkpoint> {
-        None
+    /// Reconstruct the latest checkpoint from event log events.
+    /// Walk through WorkerCheckpoint events to find the highest step_index.
+    pub fn load_latest_checkpoint(&self, events: &[NexusEvent]) -> Option<Checkpoint> {
+        let mut latest: Option<Checkpoint> = None;
+        let mut max_step: u64 = 0;
+
+        for event in events {
+            if let EventType::WorkerCheckpoint {
+                task_id,
+                step_index,
+                actions,
+                artifacts,
+            } = &event.event_type
+            {
+                if *step_index > max_step {
+                    max_step = *step_index;
+                    latest = Some(Checkpoint {
+                        checkpoint_id: format!("cp_{}", event.event_id),
+                        session_id: event.session_id,
+                        step_index: *step_index,
+                        total_actions: actions.len() as u64,
+                        replay_actions: actions
+                            .iter()
+                            .map(|a| match a {
+                                Action::ReadFile { path, artifact } => ReplayAction::ReadFile {
+                                    path: path.clone(),
+                                    expected_hash: artifact.blake3.clone(),
+                                },
+                                Action::EditFile {
+                                    path,
+                                    search,
+                                    replace,
+                                    artifact,
+                                } => ReplayAction::EditFile {
+                                    path: path.clone(),
+                                    search: search.clone(),
+                                    replace: replace.clone(),
+                                    expected_count: 1,
+                                },
+                                Action::RunCommand {
+                                    command,
+                                    args,
+                                    env,
+                                } => ReplayAction::RunCommand {
+                                    command: command.clone(),
+                                    args: args.clone(),
+                                    env: env.clone(),
+                                },
+                                Action::GitCommit { message, files } => {
+                                    ReplayAction::GitCommit {
+                                        message: message.clone(),
+                                        files: files.clone(),
+                                    }
+                                }
+                            })
+                            .collect(),
+                        artifact_refs: artifacts.clone(),
+                        handle_registry: Vec::new(),
+                        determinism_context: DeterminismContext {
+                            seed: 0,
+                            model_version: String::new(),
+                            input_hash: String::new(),
+                            checkpoint_format_version: 1,
+                            worker_type: WorkerType::Python,
+                        },
+                        created_at: event.event_timestamp,
+                    });
+                }
+            }
+        }
+
+        if latest.is_some() {
+            tracing::info!(
+                target = "nexus.recovery",
+                checkpoint_step = %max_step,
+                "Latest checkpoint reconstructed from event log"
+            );
+        }
+
+        latest
     }
 }
 
@@ -275,26 +353,112 @@ fn build_dag(events: &[NexusEvent]) -> BTreeMap<TaskId, TaskNode> {
 }
 
 fn build_recovery_plan(state: &NexusState, from_step: u64) -> RecoveryPlan {
+    // Generate real replay actions from the execution frontier and intent graph.
+    // For each task in the frontier, look up its TaskNode in the intent_graph
+    // to determine the correct replay action type based on the task's action_type.
+    let replay_actions: Vec<ReplayAction> = state
+        .execution_frontier
+        .nodes
+        .iter()
+        .filter_map(|task_id| {
+            state.intent_graph.nodes.get(task_id).map(|node| {
+                match node.intent.action_type.as_str() {
+                    "read_file" => ReplayAction::ReadFile {
+                        path: node.intent.target.clone(),
+                        expected_hash: String::new(),
+                    },
+                    "edit_file" | "replace_text" => ReplayAction::EditFile {
+                        path: node.intent.target.clone(),
+                        search: node
+                            .intent
+                            .parameters
+                            .get("search")
+                            .cloned()
+                            .unwrap_or_default(),
+                        replace: node
+                            .intent
+                            .parameters
+                            .get("replace")
+                            .cloned()
+                            .unwrap_or_default(),
+                        expected_count: 1,
+                    },
+                    "run_command" | "grep" | "calculate" => ReplayAction::RunCommand {
+                        command: node.intent.target.clone(),
+                        args: node
+                            .intent
+                            .parameters
+                            .values()
+                            .cloned()
+                            .collect(),
+                        env: std::collections::BTreeMap::new(),
+                    },
+                    "git_commit" => ReplayAction::GitCommit {
+                        message: node
+                            .intent
+                            .parameters
+                            .get("message")
+                            .cloned()
+                            .unwrap_or_default(),
+                        files: node
+                            .intent
+                            .parameters
+                            .values()
+                            .cloned()
+                            .collect(),
+                    },
+                    _ => ReplayAction::ReadFile {
+                        path: node.intent.target.clone(),
+                        expected_hash: String::new(),
+                    },
+                }
+            })
+        })
+        .collect();
+
     RecoveryPlan {
         from_step,
-        replay_actions: state
-            .execution_frontier
-            .nodes
-            .iter()
-            .map(|_| ReplayAction::ReadFile {
-                path: String::new(),
-                expected_hash: String::new(),
-            })
-            .collect(),
+        replay_actions,
         handle_registry: Vec::new(),
     }
 }
 
 pub fn reacquire_handle(handle: &HandleRecord) -> Result<(), RecoveryError> {
     match handle.handle_type.as_str() {
-        "file_lock" => Ok(()),
-        "api_session" => Ok(()),
-        _ => Ok(()),
+        "file_lock" => {
+            let path = handle.metadata.get("path").cloned().unwrap_or_default();
+            if path.is_empty() {
+                return Err(RecoveryError::WorkerSpawnFailed(
+                    "file_lock handle missing path".into(),
+                ));
+            }
+            std::fs::metadata(&path).map_err(|e| {
+                RecoveryError::WorkerSpawnFailed(format!(
+                    "Cannot reacquire file_lock for {}: {}",
+                    path, e
+                ))
+            })?;
+            tracing::debug!(target = "nexus.recovery", path = %path, "File lock reacquired");
+            Ok(())
+        }
+        "api_session" => {
+            let endpoint = handle.metadata.get("endpoint").cloned().unwrap_or_default();
+            if endpoint.is_empty() {
+                return Err(RecoveryError::WorkerSpawnFailed(
+                    "api_session handle missing endpoint".into(),
+                ));
+            }
+            tracing::warn!(target = "nexus.recovery", endpoint = %endpoint, "API session may require manual re-authentication");
+            Ok(())
+        }
+        "db_connection" => {
+            tracing::debug!(target = "nexus.recovery", "DB connection handle delegated to store");
+            Ok(())
+        }
+        other => {
+            tracing::warn!(target = "nexus.recovery", handle_type = %other, "Unknown handle type");
+            Ok(())
+        }
     }
 }
 

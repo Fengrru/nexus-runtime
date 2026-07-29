@@ -1,0 +1,47 @@
+# Rust build artifacts
+/target/
+
+# Dependencies are fetched by Docker
+.cargo/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI
+.github/
+
+# Docs (not needed at runtime)
+docs/
+
+# Tests
+crates/phoenix-tests/
+
+# Fixtures
+fixtures/
+
+# K8s
+k8s/
+
+# Policies
+policies/
+
+# Scripts
+scripts/
+
+# SDK (not needed in container)
+sdk/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Misc
+*.md
+LICENSE-MIT
+deny.toml
+.clippy.toml
+output.txt
+td.md
