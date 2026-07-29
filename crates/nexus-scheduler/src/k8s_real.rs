@@ -6,8 +6,10 @@ use k8s_openapi::api::core::v1::{
 /// Kubernetes scheduler using the kube crate.
 /// Manages worker pods in a K8s cluster.
 #[cfg(feature = "kube-integration")]
-use kube::api::{Api, DeleteParams, PostParams};
-use kube::Client;
+use kube::{
+    api::{Api, DeleteParams, PostParams},
+    Client,
+};
 use nexus_core::TaskId;
 use std::collections::BTreeMap;
 

@@ -3,11 +3,14 @@ use nexus_core::TaskId;
 use std::collections::BTreeMap;
 
 #[cfg(feature = "docker")]
-use bollard::container::{
-    Config as DockerConfig, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions,
+use bollard::{
+    container::{
+        Config as DockerConfig, CreateContainerOptions, RemoveContainerOptions,
+        StartContainerOptions,
+    },
+    models::HostConfig,
+    Docker,
 };
-use bollard::models::HostConfig;
-use bollard::Docker;
 
 pub struct DockerScheduler {
     ready_queue: Vec<SchedulerTask>,
