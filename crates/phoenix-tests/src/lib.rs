@@ -1,7 +1,6 @@
 #![deny(clippy::disallowed_types)]
 
 use nexus_core::*;
-use nexus_event_store::EventStore;
 use std::collections::BTreeMap;
 
 pub struct PhoenixHarness {
