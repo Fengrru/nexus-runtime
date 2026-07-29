@@ -1,15 +1,13 @@
 use crate::{CapabilityMode, SchedulerTask};
 #[cfg(feature = "kube-integration")]
 use k8s_openapi::api::core::v1::{
-    Container, ContainerPort, EnvVar, Pod, PodSpec, ResourceRequirements, SecurityContext,
+    Container, EnvVar, Pod, PodSpec, ResourceRequirements, SecurityContext,
 };
 /// Kubernetes scheduler using the kube crate.
 /// Manages worker pods in a K8s cluster.
 #[cfg(feature = "kube-integration")]
-use kube::{
-    api::{Api, DeleteParams, PostParams},
-    Client, Config,
-};
+use kube::api::{Api, DeleteParams, PostParams};
+use kube::Client;
 use nexus_core::TaskId;
 use std::collections::BTreeMap;
 
@@ -139,6 +137,7 @@ impl RealK8sScheduler {
                         ..Default::default()
                     }),
                     resources: Some(ResourceRequirements {
+                        claims: None,
                         requests: Some({
                             let mut req = BTreeMap::new();
                             req.insert(

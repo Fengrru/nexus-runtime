@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "docker")]
 use bollard::container::{
-    Config as DockerConfig, CreateContainerOptions, HostConfig, RemoveContainerOptions,
+    Config as DockerConfig, CreateContainerOptions, RemoveContainerOptions,
     StartContainerOptions,
 };
-#[cfg(feature = "docker")]
+use bollard::models::HostConfig;
 use bollard::Docker;
 
 pub struct DockerScheduler {
