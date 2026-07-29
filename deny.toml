@@ -2,9 +2,9 @@
 # See https://embarkstudios.github.io/cargo-deny/
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "deny"
-notice = "deny"
+vulnerability = "all"
+unmaintained = "all"
+notice = "all"
 severity-threshold = "high"
 ignore = []
 

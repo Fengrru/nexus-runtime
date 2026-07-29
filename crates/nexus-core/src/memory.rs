@@ -70,7 +70,8 @@ impl EmbeddingGenerator for Blake3EmbeddingGenerator {
             hasher.update(text_bytes);
             hasher.update(&counter);
             let hash = hasher.finalize();
-            let u = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
+            let bytes = hash.as_bytes();
+            let u = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
             let f = (u as f64 / u32::MAX as f64) as f32 * 2.0 - 1.0;
             embedding.extend_from_slice(&f.to_le_bytes());
         }
@@ -91,7 +92,7 @@ impl MemoryContent {
         match self {
             MemoryContent::Text { text } => text.clone(),
             MemoryContent::Structured { data } => {
-                let mut parts: Vec<&String> = data.values().collect();
+                let parts: Vec<&str> = data.values().map(|s| s.as_str()).collect();
                 parts.join(" ")
             }
             MemoryContent::Proposition {
