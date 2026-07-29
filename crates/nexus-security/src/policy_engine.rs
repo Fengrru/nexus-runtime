@@ -83,16 +83,16 @@ impl PolicyEngine {
     pub fn evaluate_budget(&self, input: &Value) -> PolicyOutput {
         let package = "nexus.policy";
 
-        let action = input
-            .get("action")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let action = input.get("action").and_then(|v| v.as_str()).unwrap_or("");
 
         let mut denials = Vec::new();
 
         match action {
             "llm_call" => {
-                let cost = input.get("cost_cents").and_then(|v| v.as_u64()).unwrap_or(0);
+                let cost = input
+                    .get("cost_cents")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let remaining = input
                     .get("budget_remaining")
                     .and_then(|v| v.as_u64())
@@ -130,10 +130,7 @@ impl PolicyEngine {
                 }
             }
             "human_override" => {
-                let approver = input
-                    .get("approver")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let approver = input.get("approver").and_then(|v| v.as_str()).unwrap_or("");
                 let ts = input.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
                 let timeout = input.get("timeout").and_then(|v| v.as_u64()).unwrap_or(0);
 
@@ -216,20 +213,14 @@ impl PolicyEngine {
                 .get("requested_action")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            denials.push(format!(
-                "Token does not cover action: {}",
-                action
-            ));
+            denials.push(format!("Token does not cover action: {}", action));
         }
         if !path_ok {
             let path = input
                 .get("requested_path")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            denials.push(format!(
-                "Path contains traversal pattern: {}",
-                path
-            ));
+            denials.push(format!("Path contains traversal pattern: {}", path));
         }
 
         if denials.is_empty() {

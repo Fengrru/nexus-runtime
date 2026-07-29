@@ -81,9 +81,7 @@ pub use entropy::*;
 pub use event::*;
 pub use export::SessionExport;
 pub use llm_proxy::{LlmProxy, LlmRequest, LlmResponse, ProxyError};
-pub use memory::{
-    Blake3EmbeddingGenerator, EmbeddingGenerator, NoopEmbeddingGenerator,
-};
+pub use memory::{Blake3EmbeddingGenerator, EmbeddingGenerator, NoopEmbeddingGenerator};
 pub use migration::{CrossNodeSession, MigrationStatus, SessionMigrationManager};
 pub use protocol::*;
 pub use recovery::*;

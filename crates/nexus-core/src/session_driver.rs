@@ -10,7 +10,8 @@ use std::collections::BTreeMap;
 #[async_trait]
 pub trait SessionStore: Send + Sync {
     async fn append_event(&self, event: &NexusEvent) -> Result<(), String>;
-    async fn update_state(&self, state: &NexusState, expected_version: u64) -> Result<bool, String>;
+    async fn update_state(&self, state: &NexusState, expected_version: u64)
+        -> Result<bool, String>;
 }
 
 /// SessionDriver encapsulates the standard session lifecycle,
@@ -57,7 +58,11 @@ impl<S: SessionStore> SessionDriver<S> {
     }
 
     /// Phase 1: Record user intent — moves Created → Intake.
-    pub async fn intake(&mut self, raw_input: &str, source: &str) -> Result<(), SessionDriverError> {
+    pub async fn intake(
+        &mut self,
+        raw_input: &str,
+        source: &str,
+    ) -> Result<(), SessionDriverError> {
         self.apply(EventType::IntentReceived {
             raw_input: raw_input.to_string(),
             source: source.to_string(),
@@ -227,7 +232,10 @@ impl<S: SessionStore> SessionDriver<S> {
         match self.plan_with_llm(model, &prompt).await {
             Ok(_) => {}
             Err(SessionDriverError::LlmApiKeyNotSet(_)) => {
-                tracing::info!(target = "nexus.session_driver", "No API key, continuing without LLM plan");
+                tracing::info!(
+                    target = "nexus.session_driver",
+                    "No API key, continuing without LLM plan"
+                );
             }
             Err(e) => return Err(e),
         }

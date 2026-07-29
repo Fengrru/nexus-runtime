@@ -220,8 +220,7 @@ impl LlmProxy {
             }));
         }
 
-        let content = serde_json::to_string_pretty(&steps)
-            .unwrap_or_else(|_| "[]".to_string());
+        let content = serde_json::to_string_pretty(&steps).unwrap_or_else(|_| "[]".to_string());
 
         tracing::info!(
             target = "nexus.llm_proxy",

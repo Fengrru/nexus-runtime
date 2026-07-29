@@ -277,21 +277,17 @@ impl RecoveryManager {
                                     replace: replace.clone(),
                                     expected_count: 1,
                                 },
-                                Action::RunCommand {
-                                    command,
-                                    args,
-                                    env,
-                                } => ReplayAction::RunCommand {
-                                    command: command.clone(),
-                                    args: args.clone(),
-                                    env: env.clone(),
-                                },
-                                Action::GitCommit { message, files } => {
-                                    ReplayAction::GitCommit {
-                                        message: message.clone(),
-                                        files: files.clone(),
+                                Action::RunCommand { command, args, env } => {
+                                    ReplayAction::RunCommand {
+                                        command: command.clone(),
+                                        args: args.clone(),
+                                        env: env.clone(),
                                     }
                                 }
+                                Action::GitCommit { message, files } => ReplayAction::GitCommit {
+                                    message: message.clone(),
+                                    files: files.clone(),
+                                },
                             })
                             .collect(),
                         artifact_refs: artifacts.clone(),
@@ -385,12 +381,7 @@ fn build_recovery_plan(state: &NexusState, from_step: u64) -> RecoveryPlan {
                     },
                     "run_command" | "grep" | "calculate" => ReplayAction::RunCommand {
                         command: node.intent.target.clone(),
-                        args: node
-                            .intent
-                            .parameters
-                            .values()
-                            .cloned()
-                            .collect(),
+                        args: node.intent.parameters.values().cloned().collect(),
                         env: std::collections::BTreeMap::new(),
                     },
                     "git_commit" => ReplayAction::GitCommit {
@@ -400,12 +391,7 @@ fn build_recovery_plan(state: &NexusState, from_step: u64) -> RecoveryPlan {
                             .get("message")
                             .cloned()
                             .unwrap_or_default(),
-                        files: node
-                            .intent
-                            .parameters
-                            .values()
-                            .cloned()
-                            .collect(),
+                        files: node.intent.parameters.values().cloned().collect(),
                     },
                     _ => ReplayAction::ReadFile {
                         path: node.intent.target.clone(),
@@ -452,7 +438,10 @@ pub fn reacquire_handle(handle: &HandleRecord) -> Result<(), RecoveryError> {
             Ok(())
         }
         "db_connection" => {
-            tracing::debug!(target = "nexus.recovery", "DB connection handle delegated to store");
+            tracing::debug!(
+                target = "nexus.recovery",
+                "DB connection handle delegated to store"
+            );
             Ok(())
         }
         other => {

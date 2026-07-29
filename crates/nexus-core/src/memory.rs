@@ -395,7 +395,11 @@ mod tests {
         let emb = gen.generate(&content);
         for chunk in emb.chunks_exact(4) {
             let f = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            assert!((-1.0..=1.0).contains(&f), "f32 must be in [-1, 1], got {}", f);
+            assert!(
+                (-1.0..=1.0).contains(&f),
+                "f32 must be in [-1, 1], got {}",
+                f
+            );
         }
     }
 

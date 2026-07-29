@@ -1,10 +1,10 @@
 use super::rows::{EventRow, StateRow};
 use super::store::{EventStore, StoreError};
 use async_trait::async_trait;
+use nexus_core::session_driver::SessionStore;
 use nexus_core::{
     ArtifactRef, LlmCallRecord, LockMode, NexusEvent, NexusState, SessionId, SideEffectIntent,
 };
-use nexus_core::session_driver::SessionStore;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub const CREATE_SCHEMA_SQL: &str = include_str!("../schema.sql");
@@ -358,7 +358,11 @@ impl SessionStore for SqliteEventStore {
             .map_err(|e| e.to_string())
     }
 
-    async fn update_state(&self, state: &NexusState, expected_version: u64) -> Result<bool, String> {
+    async fn update_state(
+        &self,
+        state: &NexusState,
+        expected_version: u64,
+    ) -> Result<bool, String> {
         <Self as EventStore>::update_state(self, state, expected_version)
             .await
             .map_err(|e| e.to_string())

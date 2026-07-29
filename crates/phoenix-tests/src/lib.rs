@@ -1903,7 +1903,9 @@ mod integration {
 
         let mut cv = CausalVector::new();
         cv.increment(sid);
-        EventStore::append_event(&store, &NexusEvent::new(
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(
                 EventType::IntentReceived {
                     raw_input: "refactor auth to JWT".into(),
                     source: "e2e".into(),
@@ -1911,46 +1913,53 @@ mod integration {
                 sid,
                 cv.clone(),
                 None,
-            ))
-            .await
-            .unwrap();
+            ),
+        )
+        .await
+        .unwrap();
 
         cv.increment(sid);
-        EventStore::append_event(&store, &NexusEvent::new(
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(
                 EventType::IntentParsed {
                     intent_graph: IntentGraph::default(),
                 },
                 sid,
                 cv.clone(),
                 None,
-            ))
-            .await
-            .unwrap();
+            ),
+        )
+        .await
+        .unwrap();
 
         cv.increment(sid);
-        EventStore::append_event(&store, &NexusEvent::new(
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(
                 EventType::PlanCommitted {
                     frontier: Frontier::empty(),
                 },
                 sid,
                 cv.clone(),
                 None,
-            ))
-            .await
-            .unwrap();
+            ),
+        )
+        .await
+        .unwrap();
 
         cv.increment(sid);
-        EventStore::append_event(&store, &NexusEvent::new(
-                EventType::DependenciesMet,
-                sid,
-                cv.clone(),
-                None,
-            ))
-            .await
-            .unwrap();
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(EventType::DependenciesMet, sid, cv.clone(), None),
+        )
+        .await
+        .unwrap();
 
         cv.increment(sid);
-        EventStore::append_event(&store, &NexusEvent::new(
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(
                 EventType::WorkerCheckpoint {
                     task_id: TaskId::from_bytes([0xAA; 16]),
                     step_index: 3,
@@ -1960,12 +1969,15 @@ mod integration {
                 sid,
                 cv.clone(),
                 None,
-            ))
-            .await
-            .unwrap();
+            ),
+        )
+        .await
+        .unwrap();
 
         cv.increment(sid);
-        EventStore::append_event(&store, &NexusEvent::new(
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(
                 EventType::WorkerCheckpoint {
                     task_id: TaskId::from_bytes([0xAA; 16]),
                     step_index: 7,
@@ -1975,9 +1987,10 @@ mod integration {
                 sid,
                 cv.clone(),
                 None,
-            ))
-            .await
-            .unwrap();
+            ),
+        )
+        .await
+        .unwrap();
 
         let events = store.get_events(sid, None).await.unwrap();
         assert_eq!(events.len(), 6);
@@ -2151,7 +2164,9 @@ mod integration {
 
         let mut cv1 = CausalVector::new();
         cv1.increment(sid1);
-        EventStore::append_event(&store, &NexusEvent::new(
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(
                 EventType::IntentReceived {
                     raw_input: "task 1".into(),
                     source: "e2e".into(),
@@ -2159,13 +2174,16 @@ mod integration {
                 sid1,
                 cv1,
                 None,
-            ))
-            .await
-            .unwrap();
+            ),
+        )
+        .await
+        .unwrap();
 
         let mut cv2 = CausalVector::new();
         cv2.increment(sid2);
-        EventStore::append_event(&store, &NexusEvent::new(
+        EventStore::append_event(
+            &store,
+            &NexusEvent::new(
                 EventType::IntentReceived {
                     raw_input: "task 2".into(),
                     source: "e2e".into(),
@@ -2173,9 +2191,10 @@ mod integration {
                 sid2,
                 cv2,
                 None,
-            ))
-            .await
-            .unwrap();
+            ),
+        )
+        .await
+        .unwrap();
 
         let events1 = store.get_events(sid1, None).await.unwrap();
         let events2 = store.get_events(sid2, None).await.unwrap();

@@ -225,7 +225,10 @@ mod property_tests {
     fn prop_causal_vector_singleton_is_consistent() {
         let sid = SessionId::from_bytes([1u8; 16]);
         let cv = CausalVector::singleton(sid, 1);
-        assert!(cv.is_consistent(), "singleton with positive count must be consistent");
+        assert!(
+            cv.is_consistent(),
+            "singleton with positive count must be consistent"
+        );
     }
 
     #[test]
@@ -353,10 +356,7 @@ mod property_tests {
         b.increment(sid);
 
         assert!(a.happened_before(&b));
-        assert!(
-            !b.happened_before(&a),
-            "if a → b then NOT (b → a)"
-        );
+        assert!(!b.happened_before(&a), "if a → b then NOT (b → a)");
     }
 
     #[test]
@@ -519,7 +519,8 @@ mod property_tests {
             let event = NexusEvent::new(event_type, sid, cv.clone(), None);
             state = transition(&state, &event, &dag).unwrap();
             assert_eq!(
-                &state.status, expected,
+                &state.status,
+                expected,
                 "after transition {}, expected {:?}, got {:?}",
                 i + 1,
                 expected,
@@ -601,7 +602,11 @@ mod property_tests {
             hash1, hash2,
             "integrity hash must be deterministic for same event"
         );
-        assert_eq!(hash1.len(), 64, "hash must be 64 hex chars (BLAKE3 32 bytes)");
+        assert_eq!(
+            hash1.len(),
+            64,
+            "hash must be 64 hex chars (BLAKE3 32 bytes)"
+        );
     }
 
     #[test]
