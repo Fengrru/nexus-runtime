@@ -266,7 +266,6 @@ impl SandboxTier {
     }
 
     #[cfg(target_os = "linux")]
-    #[cfg(target_os = "linux")]
     fn landlock_available() -> bool {
         let kernel = crate::kernel_version();
         kernel >= (5, 13, 0)
@@ -478,6 +477,11 @@ mod tests {
     #[test]
     fn test_sandbox_tier_best_available() {
         let tier = SandboxTier::best_available();
+        // Whatever tier is reported as best available must actually be applicable
+        // on this platform; the concrete tier depends on the host kernel.
+        let mut cmd = std::process::Command::new("nexus-sandbox-probe");
+        assert!(tier.apply(&mut cmd).is_ok());
+        #[cfg(not(target_os = "linux"))]
         assert_eq!(tier, SandboxTier::Tier2);
     }
 }
