@@ -97,13 +97,13 @@ impl Default for TraceId {
 ///
 /// let mut cv1 = CausalVector::new();
 /// cv1.increment(sid_a);
-/// cv1.increment(sid_a);
 ///
 /// let mut cv2 = CausalVector::new();
 /// cv2.increment(sid_a);
+/// cv2.increment(sid_a);
 /// cv2.increment(sid_b);
 ///
-/// // cv1 happened before cv2 at sid_a (1 < 2), and cv2 has sid_b
+/// // cv1 happened before cv2: at sid_a (1 < 2), and cv2 also has sid_b
 /// assert!(cv1.happened_before(&cv2));
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

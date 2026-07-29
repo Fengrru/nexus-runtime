@@ -33,8 +33,16 @@
 //!
 //! ```rust,no_run
 //! use nexus_core::{SessionDriver, SessionId, LlmProxy};
+//! # use nexus_core::{NexusEvent, NexusState, SessionStore};
+//! # struct MemStore;
+//! # #[async_trait::async_trait]
+//! # impl SessionStore for MemStore {
+//! #     async fn append_event(&self, _event: &NexusEvent) -> Result<(), String> { Ok(()) }
+//! #     async fn update_state(&self, _state: &NexusState, _v: u64) -> Result<bool, String> { Ok(true) }
+//! # }
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # let my_store = MemStore;
 //! // Create a session with an LLM proxy for planning
 //! let llm_proxy = LlmProxy::new(b"signing-key".to_vec());
 //! let mut session = SessionDriver::new(SessionId::new(), my_store, llm_proxy);
