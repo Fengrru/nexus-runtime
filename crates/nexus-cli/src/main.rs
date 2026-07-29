@@ -342,7 +342,9 @@ async fn run_session(intent: &str, model: &str, budget_usd: f64) {
                         .checkpoint(task_id, checkpoints, vec![], vec![])
                         .await
                     {
-                        Ok(()) => println!("[CKPT]   Step {} → {:?}", checkpoints, driver.state.status),
+                        Ok(()) => {
+                            println!("[CKPT]   Step {} → {:?}", checkpoints, driver.state.status)
+                        }
                         Err(e) => println!("[CKPT]   Store error: {}", e),
                     }
                 } else if msg.get("result").is_some()
