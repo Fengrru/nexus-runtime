@@ -2,13 +2,11 @@
 # See https://embarkstudios.github.io/cargo-deny/
 
 [advisories]
-vulnerability = "all"
-unmaintained = "all"
-notice = "all"
-severity-threshold = "high"
+version = 2
 ignore = []
 
 [licenses]
+version = 2
 allow = [
     "MIT",
     "Apache-2.0",
@@ -20,11 +18,7 @@ allow = [
     "Unicode-3.0",
     "0BSD",
 ]
-deny = []
 confidence-threshold = 0.8
-unlicensed = "deny"
-allow-osi-fsf-free = "neither"
-default = "deny"
 
 [licenses.private]
 ignore = false
