@@ -438,9 +438,15 @@ mod tests {
         let sid1 = SessionId::from_bytes([1u8; 16]);
         let sid2 = SessionId::from_bytes([2u8; 16]);
 
-        EventStore::append_event(&store, &make_event(sid1, 1)).await.unwrap();
-        EventStore::append_event(&store, &make_event(sid1, 2)).await.unwrap();
-        EventStore::append_event(&store, &make_event(sid2, 1)).await.unwrap();
+        EventStore::append_event(&store, &make_event(sid1, 1))
+            .await
+            .unwrap();
+        EventStore::append_event(&store, &make_event(sid1, 2))
+            .await
+            .unwrap();
+        EventStore::append_event(&store, &make_event(sid2, 1))
+            .await
+            .unwrap();
 
         let events1 = store.get_events(sid1, None).await.unwrap();
         let events2 = store.get_events(sid2, None).await.unwrap();
@@ -487,7 +493,9 @@ mod tests {
         initial_state.version = 1;
         initial_state.latest_event_id = event.event_id.clone();
 
-        let ok = EventStore::update_state(&store, &initial_state, 0).await.unwrap();
+        let ok = EventStore::update_state(&store, &initial_state, 0)
+            .await
+            .unwrap();
         assert!(ok, "First insert should succeed");
 
         let mut updated = initial_state.clone();
