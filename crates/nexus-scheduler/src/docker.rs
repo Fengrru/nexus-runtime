@@ -306,17 +306,21 @@ mod tests {
         assert_eq!(sched.active_count(), 0);
     }
 
+    // These exercise the stub implementations only; with the `docker` feature
+    // they would require a daemon with the worker image loaded.
+    #[cfg(not(feature = "docker"))]
     #[tokio::test]
     async fn test_docker_stub_start_stop() {
         let sched = DockerScheduler::new(3);
         let tid = TaskId::from_bytes([1u8; 16]);
 
         let name = sched.start_container(tid, &[]).await.unwrap();
-        assert!(name.contains("stub-container") || name.contains("nexus-worker"));
+        assert!(name.contains("stub-container"));
 
         sched.stop_container(tid).await.unwrap();
     }
 
+    #[cfg(not(feature = "docker"))]
     #[tokio::test]
     async fn test_docker_health_check_stub() {
         let sched = DockerScheduler::new(3);
