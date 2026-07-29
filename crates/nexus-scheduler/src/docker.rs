@@ -4,8 +4,7 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "docker")]
 use bollard::container::{
-    Config as DockerConfig, CreateContainerOptions, RemoveContainerOptions,
-    StartContainerOptions,
+    Config as DockerConfig, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions,
 };
 use bollard::models::HostConfig;
 use bollard::Docker;
