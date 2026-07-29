@@ -411,7 +411,7 @@ mod tests {
 
         let event_id = event.event_id.clone();
 
-        store.append_event(&event).await.unwrap();
+        EventStore::append_event(&store, &event).await.unwrap();
 
         let fetched = store.get_event(&event_id).await.unwrap();
         assert!(fetched.is_some());
@@ -425,7 +425,7 @@ mod tests {
 
         for i in 1..=5 {
             let event = make_event(sid, i);
-            store.append_event(&event).await.unwrap();
+            EventStore::append_event(&store, &event).await.unwrap();
         }
 
         let events = store.get_events(sid, None).await.unwrap();
@@ -438,9 +438,9 @@ mod tests {
         let sid1 = SessionId::from_bytes([1u8; 16]);
         let sid2 = SessionId::from_bytes([2u8; 16]);
 
-        store.append_event(&make_event(sid1, 1)).await.unwrap();
-        store.append_event(&make_event(sid1, 2)).await.unwrap();
-        store.append_event(&make_event(sid2, 1)).await.unwrap();
+        EventStore::append_event(&store, &make_event(sid1, 1)).await.unwrap();
+        EventStore::append_event(&store, &make_event(sid1, 2)).await.unwrap();
+        EventStore::append_event(&store, &make_event(sid2, 1)).await.unwrap();
 
         let events1 = store.get_events(sid1, None).await.unwrap();
         let events2 = store.get_events(sid2, None).await.unwrap();
@@ -481,19 +481,19 @@ mod tests {
             },
             None,
         );
-        store.append_event(&event).await.unwrap();
+        EventStore::append_event(&store, &event).await.unwrap();
 
         let mut initial_state = NexusState::new(sid, now_millis());
         initial_state.version = 1;
         initial_state.latest_event_id = event.event_id.clone();
 
-        let ok = store.update_state(&initial_state, 0).await.unwrap();
+        let ok = EventStore::update_state(&store, &initial_state, 0).await.unwrap();
         assert!(ok, "First insert should succeed");
 
         let mut updated = initial_state.clone();
         updated.version = 2;
 
-        let ok = store.update_state(&updated, 1).await.unwrap();
+        let ok = EventStore::update_state(&store, &updated, 1).await.unwrap();
         assert!(ok, "Update should succeed");
 
         let stored = store.get_state(sid).await.unwrap().unwrap();
@@ -580,7 +580,7 @@ mod tests {
         ];
 
         for event in &events {
-            store.append_event(event).await.unwrap();
+            EventStore::append_event(&store, event).await.unwrap();
         }
 
         // Load all events
@@ -632,7 +632,7 @@ mod tests {
             None,
         );
 
-        store.append_event(&event).await.unwrap();
+        EventStore::append_event(&store, &event).await.unwrap();
 
         let fetched = store.get_event(&event.event_id).await.unwrap().unwrap();
         assert_eq!(fetched.causal_vector.0.get(&sid), Some(&2u64));
