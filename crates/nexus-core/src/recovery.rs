@@ -246,7 +246,7 @@ impl RecoveryManager {
 
         for event in events {
             if let EventType::WorkerCheckpoint {
-                task_id,
+                _task_id,
                 step_index,
                 actions,
                 artifacts,
@@ -270,7 +270,7 @@ impl RecoveryManager {
                                     path,
                                     search,
                                     replace,
-                                    artifact,
+                                    _artifact,
                                 } => ReplayAction::EditFile {
                                     path: path.clone(),
                                     search: search.clone(),

@@ -48,7 +48,7 @@ impl<S: SessionStore> SessionDriver<S> {
         self.store
             .append_event(&event)
             .await
-            .map_err(|e| SessionDriverError::StoreError(e))?;
+                    .map_err(SessionDriverError::StoreError)?;
 
         self.state.latest_event_id = event.event_id.clone();
         self.state = transition(&self.state, &event, &self.dag)
@@ -102,7 +102,7 @@ impl<S: SessionStore> SessionDriver<S> {
                 self.store
                     .append_event(&llm_event)
                     .await
-                    .map_err(|e| SessionDriverError::StoreError(e))?;
+            .map_err(SessionDriverError::StoreError)?;
 
                 self.state.latest_event_id = llm_event.event_id.clone();
                 self.state.budget = budget;
