@@ -2036,13 +2036,13 @@ dependencies = [
 
 [[package]]
 name = "landlock"
-version = "0.3.1"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9baa9eeb6e315942429397e617a190f4fdc696ef1ee0342939d641029cbb4ea7"
+checksum = "4cca98e95f35b29d469dade6724c6f96cec9236640f745a0e99b0334ec320ab1"
 dependencies = [
  "enumflags2",
  "libc",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2246,6 +2246,7 @@ dependencies = [
 name = "nexus-core"
 version = "1.0.0"
 dependencies = [
+ "async-trait",
  "blake3",
  "criterion",
  "hex",
@@ -2362,6 +2363,7 @@ dependencies = [
  "nexus-core",
  "rmp-serde",
  "serde",
+ "serde_json",
  "sha2",
  "thiserror 2.0.18",
  "tokio",
