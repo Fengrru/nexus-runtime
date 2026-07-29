@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use nexus_core::llm_proxy::{LlmProxy, LlmRequest, ProxyError};
+use nexus_core::llm_proxy::LlmProxy;
 use nexus_core::*;
 use nexus_event_store::{EventStore, SqliteEventStore};
 use std::collections::BTreeMap;
@@ -562,7 +562,7 @@ async fn suspend_session(session_id: &str) {
                 Some(state.latest_event_id.clone()),
             );
 
-            match store.append_event(&event).await {
+            match EventStore::append_event(&store, &event).await {
                 Ok(()) => println!("Session suspended: {}", session_id),
                 Err(e) => println!("Error: {}", e),
             }
@@ -597,7 +597,7 @@ async fn archive_session(session_id: &str) {
                 Some(state.latest_event_id.clone()),
             );
 
-            match store.append_event(&event).await {
+            match EventStore::append_event(&store, &event).await {
                 Ok(()) => println!("Session archived: {}", session_id),
                 Err(e) => println!("Error: {}", e),
             }

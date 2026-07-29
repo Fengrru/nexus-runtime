@@ -17,6 +17,7 @@ impl SideEffectClass {
     }
 }
 
+#[derive(Debug)]
 pub enum RecoveryAction {
     Replay,
     CompensateAndReplay,
