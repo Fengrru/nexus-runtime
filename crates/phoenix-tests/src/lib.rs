@@ -1,6 +1,7 @@
 #![deny(clippy::disallowed_types)]
 
 use nexus_core::*;
+use nexus_event_store::EventStore;
 use std::collections::BTreeMap;
 
 pub struct PhoenixHarness {
@@ -756,7 +757,7 @@ impl PhoenixSuite {
 
         // Scenario: cross-session resume — memory inheritance works
         run("cross_session_resume", &mut report, || {
-            let sid_a = SessionId::from_bytes([0xA0; 16]);
+            let _sid_a = SessionId::from_bytes([0xA0; 16]);
             let sid_b = SessionId::from_bytes([0xB0; 16]);
             let mut state_b = NexusState::new(sid_b, 0);
             let dag = BTreeMap::new();
@@ -1902,8 +1903,7 @@ mod integration {
 
         let mut cv = CausalVector::new();
         cv.increment(sid);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::IntentReceived {
                     raw_input: "refactor auth to JWT".into(),
                     source: "e2e".into(),
@@ -1916,8 +1916,7 @@ mod integration {
             .unwrap();
 
         cv.increment(sid);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::IntentParsed {
                     intent_graph: IntentGraph::default(),
                 },
@@ -1929,8 +1928,7 @@ mod integration {
             .unwrap();
 
         cv.increment(sid);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::PlanCommitted {
                     frontier: Frontier::empty(),
                 },
@@ -1942,8 +1940,7 @@ mod integration {
             .unwrap();
 
         cv.increment(sid);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::DependenciesMet,
                 sid,
                 cv.clone(),
@@ -1953,8 +1950,7 @@ mod integration {
             .unwrap();
 
         cv.increment(sid);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::WorkerCheckpoint {
                     task_id: TaskId::from_bytes([0xAA; 16]),
                     step_index: 3,
@@ -1969,8 +1965,7 @@ mod integration {
             .unwrap();
 
         cv.increment(sid);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::WorkerCheckpoint {
                     task_id: TaskId::from_bytes([0xAA; 16]),
                     step_index: 7,
@@ -2156,8 +2151,7 @@ mod integration {
 
         let mut cv1 = CausalVector::new();
         cv1.increment(sid1);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::IntentReceived {
                     raw_input: "task 1".into(),
                     source: "e2e".into(),
@@ -2171,8 +2165,7 @@ mod integration {
 
         let mut cv2 = CausalVector::new();
         cv2.increment(sid2);
-        store
-            .append_event(&NexusEvent::new(
+        EventStore::append_event(&store, &NexusEvent::new(
                 EventType::IntentReceived {
                     raw_input: "task 2".into(),
                     source: "e2e".into(),
