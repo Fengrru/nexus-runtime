@@ -145,4 +145,4 @@ jobs:
         node-version: '20'
 
     - name: Verify Node.js SDK
-      run: cd sdk/nodejs && npm install && npm link && node -e "const {Runtime}=require('@nexus/runtime');console.log('SDK OK')"
+      run: cd sdk/nodejs && npm install && node -e "const {Runtime}=require('.');console.log('SDK OK')"
