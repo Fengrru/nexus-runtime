@@ -38,8 +38,8 @@ serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
 blake3 = "1"
 hex = "0.4"
-sha2 = "0.10"
-hmac = "0.12"
+sha2 = "0.11"
+hmac = "0.13"
 sha3 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
